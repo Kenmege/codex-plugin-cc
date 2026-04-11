@@ -1,0 +1,34 @@
+{
+  "name": "claude-review",
+  "version": "0.1.0",
+  "description": "Run Claude Opus 4.6 and long-context Sonnet review passes from inside Codex CLI sessions.",
+  "author": {
+    "name": "Kennedy Umege"
+  },
+  "homepage": "https://github.com/Kenmege/codex-plugin-cc",
+  "repository": "https://github.com/Kenmege/codex-plugin-cc",
+  "license": "Apache-2.0",
+  "keywords": [
+    "claude-review",
+    "codex",
+    "review",
+    "opus",
+    "long-context"
+  ],
+  "interface": {
+    "displayName": "Claude Review",
+    "shortDescription": "Review Codex changes with Claude quality and adversarial challenge passes",
+    "longDescription": "Use Claude Review to run high-scrutiny code review, adversarial design review, setup checks, and background review jobs from inside Codex CLI sessions using the local Claude CLI runtime.",
+    "developerName": "Kennedy Umege",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/Kenmege/codex-plugin-cc",
+    "defaultPrompt": "Review the current Codex-generated changes with Claude Opus 4.6 and tell me what is unsafe, brittle, or under-tested.",
+    "brandColor": "#1f2937",
+    "screenshots": []
+  }
+}

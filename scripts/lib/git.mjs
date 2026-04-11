@@ -1,0 +1,200 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import { formatCommandFailure, runCommand, runCommandChecked } from "./process.mjs";
+
+const DEFAULT_OPUS_INLINE_BYTES = 250_000;
+const DEFAULT_LONG_CONTEXT_BYTES = 800_000;
+const MAX_UNTRACKED_BYTES = 24 * 1024;
+
+function git(cwd, args, options = {}) {
+  return runCommand("git", args, { cwd, ...options });
+}
+
+function gitChecked(cwd, args, options = {}) {
+  return runCommandChecked("git", args, { cwd, ...options });
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))].sort();
+}
+
+function isProbablyText(buffer) {
+  return !buffer.includes(0);
+}
+
+function formatSection(title, body) {
+  return [`## ${title}`, "", body.trim() || "(none)", ""].join("\n");
+}
+
+function readUntrackedFile(cwd, relativePath) {
+  const fullPath = path.join(cwd, relativePath);
+  const stat = fs.statSync(fullPath);
+  if (stat.isDirectory()) {
+    return `### ${relativePath}\n(skipped: directory)`;
+  }
+  if (stat.size > MAX_UNTRACKED_BYTES) {
+    return `### ${relativePath}\n(skipped: ${stat.size} bytes exceeds ${MAX_UNTRACKED_BYTES} byte limit)`;
+  }
+  const buffer = fs.readFileSync(fullPath);
+  if (!isProbablyText(buffer)) {
+    return `### ${relativePath}\n(skipped: binary file)`;
+  }
+  return `### ${relativePath}\n\`\`\`\n${buffer.toString("utf8").trimEnd()}\n\`\`\``;
+}
+
+export function ensureGitRepository(cwd) {
+  const result = git(cwd, ["rev-parse", "--show-toplevel"]);
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error("This command must run inside a Git repository.");
+  }
+  return String(result.stdout).trim();
+}
+
+export function detectDefaultBranch(cwd) {
+  for (const candidate of ["origin/main", "origin/master", "main", "master"]) {
+    const result = git(cwd, ["rev-parse", "--verify", candidate]);
+    if (result.status === 0) {
+      return candidate;
+    }
+  }
+  throw new Error("Unable to detect the default branch. Pass --base <ref>.");
+}
+
+export function getWorkingTreeState(cwd) {
+  return {
+    staged: String(gitChecked(cwd, ["diff", "--cached", "--name-only"]).stdout).trim().split("\n").filter(Boolean),
+    unstaged: String(gitChecked(cwd, ["diff", "--name-only"]).stdout).trim().split("\n").filter(Boolean),
+    untracked: String(gitChecked(cwd, ["ls-files", "--others", "--exclude-standard"]).stdout).trim().split("\n").filter(Boolean)
+  };
+}
+
+export function resolveReviewTarget(cwd, options = {}) {
+  ensureGitRepository(cwd);
+  if (options.base) {
+    return {
+      mode: "branch",
+      baseRef: options.base,
+      label: `branch diff against ${options.base}`
+    };
+  }
+
+  const scope = options.scope ?? "auto";
+  if (scope === "branch") {
+    const base = detectDefaultBranch(cwd);
+    return { mode: "branch", baseRef: base, label: `branch diff against ${base}` };
+  }
+
+  const state = getWorkingTreeState(cwd);
+  const dirty = state.staged.length || state.unstaged.length || state.untracked.length;
+  if (scope === "working-tree" || dirty) {
+    return { mode: "working-tree", label: "working tree diff" };
+  }
+
+  const base = detectDefaultBranch(cwd);
+  return { mode: "branch", baseRef: base, label: `branch diff against ${base}` };
+}
+
+function collectWorkingTreeContext(cwd) {
+  const state = getWorkingTreeState(cwd);
+  if (!state.staged.length && !state.unstaged.length && !state.untracked.length) {
+    throw new Error("Nothing to review in the working tree.");
+  }
+
+  const status = String(gitChecked(cwd, ["status", "--short", "--untracked-files=all"]).stdout).trim();
+  const stagedDiff = String(gitChecked(cwd, ["diff", "--cached", "--binary", "--no-ext-diff", "--submodule=diff"]).stdout);
+  const unstagedDiff = String(gitChecked(cwd, ["diff", "--binary", "--no-ext-diff", "--submodule=diff"]).stdout);
+  const untrackedFiles = state.untracked.map((file) => readUntrackedFile(cwd, file)).join("\n\n");
+  const changedFiles = unique([...state.staged, ...state.unstaged, ...state.untracked]);
+  const stagedStat = String(gitChecked(cwd, ["diff", "--shortstat", "--cached"]).stdout).trim();
+  const unstagedStat = String(gitChecked(cwd, ["diff", "--shortstat"]).stdout).trim();
+
+  return {
+    summary: `Reviewing ${changedFiles.length} changed file(s) from the working tree.`,
+    changedFiles,
+    fullContent: [
+      formatSection("Git Status", status),
+      formatSection("Staged Diff", stagedDiff),
+      formatSection("Unstaged Diff", unstagedDiff),
+      formatSection("Untracked Files", untrackedFiles)
+    ].join("\n"),
+    summaryContent: [
+      formatSection("Git Status", status),
+      formatSection("Staged Diff Stat", stagedStat),
+      formatSection("Unstaged Diff Stat", unstagedStat),
+      formatSection("Changed Files", changedFiles.join("\n"))
+    ].join("\n")
+  };
+}
+
+function collectBranchContext(cwd, baseRef) {
+  const stat = String(gitChecked(cwd, ["diff", "--shortstat", `${baseRef}...HEAD`]).stdout).trim();
+  const changedFiles = String(gitChecked(cwd, ["diff", "--name-only", `${baseRef}...HEAD`]).stdout)
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+  if (!stat && changedFiles.length === 0) {
+    throw new Error(`Nothing to review between ${baseRef} and HEAD.`);
+  }
+
+  const diff = String(
+    gitChecked(cwd, ["diff", "--binary", "--no-ext-diff", "--submodule=diff", `${baseRef}...HEAD`]).stdout
+  );
+  const commits = String(gitChecked(cwd, ["log", "--oneline", `${baseRef}..HEAD`]).stdout).trim();
+
+  return {
+    summary: `Reviewing ${changedFiles.length} changed file(s) against ${baseRef}.`,
+    changedFiles,
+    fullContent: [
+      formatSection("Commit Range", commits),
+      formatSection("Diff", diff)
+    ].join("\n"),
+    summaryContent: [
+      formatSection("Commit Range", commits),
+      formatSection("Diff Stat", stat),
+      formatSection("Changed Files", changedFiles.join("\n"))
+    ].join("\n")
+  };
+}
+
+export function collectReviewContext(cwd, target) {
+  if (target.mode === "working-tree") {
+    return collectWorkingTreeContext(cwd);
+  }
+  if (target.mode === "branch") {
+    return collectBranchContext(cwd, target.baseRef);
+  }
+  throw new Error(`Unsupported target mode ${target.mode}`);
+}
+
+export function chooseContextMode(reviewContext, options = {}) {
+  const fullBytes = Buffer.byteLength(reviewContext.fullContent, "utf8");
+  const inlineLimit = options.inlineLimit ?? DEFAULT_OPUS_INLINE_BYTES;
+  const longContextLimit = options.longContextLimit ?? DEFAULT_LONG_CONTEXT_BYTES;
+  const wantsLongContext = Boolean(options.longContext);
+
+  if (wantsLongContext && fullBytes <= longContextLimit) {
+    return {
+      bytes: fullBytes,
+      mode: "full",
+      content: reviewContext.fullContent
+    };
+  }
+
+  if (fullBytes <= inlineLimit) {
+    return {
+      bytes: fullBytes,
+      mode: "full",
+      content: reviewContext.fullContent
+    };
+  }
+
+  return {
+    bytes: fullBytes,
+    mode: "summarized",
+    content: reviewContext.summaryContent
+  };
+}

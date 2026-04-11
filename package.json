@@ -1,22 +1,27 @@
 {
-  "name": "@openai/codex-plugin-cc",
-  "version": "1.0.3",
+  "name": "codex-plugin-cc",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Use Codex from Claude Code to review code or delegate tasks.",
+  "description": "Codex-native Claude review plugin for high-scrutiny code review and adversarial review flows.",
   "license": "Apache-2.0",
+  "bin": {
+    "codex-claude-review": "./scripts/claude-review-companion.mjs"
+  },
   "engines": {
     "node": ">=18.18.0"
   },
   "scripts": {
-    "bump-version": "node scripts/bump-version.mjs",
-    "check-version": "node scripts/bump-version.mjs --check",
-    "prebuild": "mkdir -p plugins/codex/.generated/app-server-types && codex app-server generate-ts --out plugins/codex/.generated/app-server-types",
-    "build": "tsc -p tsconfig.app-server.json",
-    "test": "node --test tests/*.test.mjs"
+    "lint": "node scripts/validate-repo.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "npm run lint && npm test"
   },
-  "devDependencies": {
-    "@types/node": "^25.5.0",
-    "typescript": "^6.0.2"
-  }
+  "keywords": [
+    "codex",
+    "plugin",
+    "claude",
+    "review",
+    "opus",
+    "adversarial-review"
+  ]
 }
