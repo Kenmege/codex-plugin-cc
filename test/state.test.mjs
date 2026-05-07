@@ -97,6 +97,20 @@ test("readJobInput reports a clear missing snapshot error", () => {
   );
 });
 
+test("state helpers recover stale job locks owned by dead processes", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "claude-review-state-"));
+  const jobId = "review-stale-lock";
+  writeJob(cwd, jobId, buildJobRecord(cwd, jobId, { kind: "review", title: "stale lock job" }));
+
+  const jobFile = path.join(cwd, ".claude-review", "jobs", `${jobId}.job.json`);
+  fs.writeFileSync(`${jobFile}.lock`, "2147483647\n", { encoding: "utf8", mode: 0o600 });
+
+  updateJob(cwd, jobId, { status: "completed" });
+
+  assert.equal(readJob(cwd, jobId).status, "completed");
+  assert.equal(fs.existsSync(`${jobFile}.lock`), false);
+});
+
 test("state helpers lock concurrent updateJob writers so disjoint patches survive", async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "claude-review-state-"));
   const jobId = "review-concurrent";

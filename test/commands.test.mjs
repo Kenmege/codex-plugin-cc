@@ -100,6 +100,25 @@ test("review command prefers the helper binary and public install guidance", () 
   assert.match(source, /Return the helper stdout verbatim/i);
 });
 
+test("helper help exits successfully while unknown commands remain usage errors", () => {
+  for (const arg of ["--help", "-h", "help"]) {
+    const result = spawnSync(process.execPath, [helper, arg], {
+      cwd: root,
+      encoding: "utf8"
+    });
+    assert.equal(result.status, 0, `${arg}: ${result.stderr}`);
+    assert.match(result.stdout, /Usage:/);
+    assert.match(result.stdout, /codex-claude-review setup/);
+  }
+
+  const unknown = spawnSync(process.execPath, [helper, "not-a-command"], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(unknown.status, 2);
+  assert.match(unknown.stdout, /Usage:/);
+});
+
 test("adversarial command stays read-only", () => {
   const source = read("commands/adversarial-review.md");
   assert.match(source, /Keep this command read-only/i);
@@ -142,6 +161,27 @@ test("review command advertises agentic mode and read-only tools", () => {
   assert.match(source, /agentic/i);
   assert.match(source, /read-only/i);
   assert.match(source, /Read, Glob, Grep/);
+});
+
+test("review command preserves positional focus text in the job snapshot", () => {
+  const cwd = makeDirtyRepo();
+  const fake = withFakeClaudeForReview(validBasicStructuredStream());
+  const result = spawnSync(
+    process.execPath,
+    [helper, "review", "--legacy", "--cwd", cwd, "focus on rollback safety"],
+    {
+      cwd,
+      encoding: "utf8",
+      env: fake.env
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const jobsDir = path.join(cwd, ".claude-review", "jobs");
+  const inputFile = fs.readdirSync(jobsDir).find((entry) => entry.endsWith(".input.json"));
+  assert.ok(inputFile);
+  const snapshot = JSON.parse(fs.readFileSync(path.join(jobsDir, inputFile), "utf8"));
+  assert.equal(snapshot.focusText, "focus on rollback safety");
 });
 
 test("helper rejects unsafe --add-dir before invoking Claude", () => {

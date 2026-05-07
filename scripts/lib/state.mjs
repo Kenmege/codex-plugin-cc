@@ -55,6 +55,39 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+function maybeRemoveStaleLock(lockFile) {
+  let holderPid = null;
+  try {
+    holderPid = Number.parseInt(fs.readFileSync(lockFile, "utf8").trim(), 10);
+  } catch (error) {
+    if (error?.code === "ENOENT") return true;
+    return false;
+  }
+
+  if (!Number.isInteger(holderPid) || holderPid <= 0 || holderPid === process.pid || isProcessAlive(holderPid)) {
+    return false;
+  }
+
+  try {
+    fs.unlinkSync(lockFile);
+    return true;
+  } catch (error) {
+    return error?.code === "ENOENT";
+  }
+}
+
 function acquireLock(lockFile, options = {}) {
   const timeoutMs = options.timeoutMs ?? 5_000;
   const startedAt = Date.now();
@@ -84,6 +117,9 @@ function acquireLock(lockFile, options = {}) {
       }
       if (error?.code !== "EEXIST") {
         throw error;
+      }
+      if (maybeRemoveStaleLock(lockFile)) {
+        continue;
       }
       if (Date.now() - startedAt >= timeoutMs) {
         throw new Error(`Timed out waiting for job state lock ${lockFile}`);

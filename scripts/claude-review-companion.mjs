@@ -33,6 +33,7 @@ import {
   listJobs,
   readJobInput,
   readLogTail,
+  resolveJobLogFile,
   updateJob,
   writeJob,
   writeJobInput
@@ -514,7 +515,10 @@ function buildBackgroundJob(cwd, kind, snapshot) {
   });
   createJob(cwd, jobId, job);
   writeJobInput(cwd, jobId, snapshot);
-  const pid = spawnDetached(process.execPath, [SCRIPT_PATH, "run-job", jobId, "--cwd", cwd], { cwd });
+  const pid = spawnDetached(process.execPath, [SCRIPT_PATH, "run-job", jobId, "--cwd", cwd], {
+    cwd,
+    logFile: resolveJobLogFile(cwd, jobId)
+  });
   writeJob(cwd, jobId, { ...job, pid, status: "running", updatedAt: new Date().toISOString() });
   return { ...job, pid, status: "running" };
 }
@@ -570,7 +574,7 @@ async function handleReviewLike(kind, argv) {
     valueOptions: REVIEW_LIKE_VALUE_OPTIONS
   });
   const cwd = path.resolve(options.cwd ?? process.cwd());
-  const focusText = kind === "review" ? "" : positionals.join(" ").trim();
+  const focusText = positionals.join(" ").trim();
   const snapshot = prepareSnapshot(cwd, kind, options, focusText);
 
   if (options.background) {
@@ -748,6 +752,10 @@ function handleCancel(argv) {
 async function main() {
   const [command, ...argv] = process.argv.slice(2);
   try {
+    if (!command || command === "--help" || command === "-h" || command === "help") {
+      printUsage();
+      return;
+    }
     switch (command) {
       case "setup":
         handleSetup(argv);
@@ -781,7 +789,7 @@ async function main() {
         break;
       default:
         printUsage();
-        process.exitCode = command ? 2 : 0;
+        process.exitCode = 2;
     }
   } catch (error) {
     process.stderr.write(`${error.message}\n`);

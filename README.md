@@ -120,6 +120,8 @@ you know up-front whether the budget/beta caps will apply.
 
 Clone this repository somewhere stable and install from the repository root.
 
+### Local private install
+
 Install the helper binary:
 
 ```bash
@@ -146,6 +148,30 @@ codex plugin marketplace add <repo-root>
 This loads `.agents/plugins/marketplace.json` as the
 `claude-review-private` marketplace. Do not install the private lane from a
 GitHub URL unless intentionally testing the public marketplace path.
+
+### GitHub Packages install
+
+Consumers with repository/package access can install the helper from GitHub
+Packages. GitHub Packages uses `https://npm.pkg.github.com` for npm packages
+and requires a personal access token (classic) for developer-machine npm auth.
+For install-only access, use the least-privileged token scope that works for
+the package visibility, typically `read:packages`.
+
+```bash
+echo "@kenmege:registry=https://npm.pkg.github.com" > ~/.npmrc
+echo "//npm.pkg.github.com/:_authToken=YOUR_CLASSIC_PAT" >> ~/.npmrc
+npm install -g @kenmege/codex-plugin-cc
+```
+
+Do not commit a token-bearing `.npmrc`. The repository `.npmrc` contains only
+token-free scope routing:
+
+```ini
+@kenmege:registry=https://npm.pkg.github.com
+```
+
+Reference: GitHub Docs, "Working with the npm registry":
+https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry
 
 ## Direct CLI Usage
 
@@ -240,6 +266,9 @@ Setup accepts `--json` for machine-parseable readiness checks.
 - `--add-dir` resolves symlinks with `realpath`, rejects filesystem root,
   unreadable paths, non-directories, and paths outside the allowed boundary
   before Claude starts.
+  The default boundary is the parent of the workspace root; set
+  `CODEX_CLAUDE_ADD_DIR_BOUNDARY=/absolute/path` to tighten or intentionally
+  extend that boundary for a trusted monorepo layout.
 - `--mcp-config` values are parsed as JSON and checked for MCP server
   structure before they are passed to Claude.
 - Foreground Claude calls are launched with timeout/interruption handling; a
@@ -297,8 +326,13 @@ npm run pack:check
 ```
 
 The npm package is marked `private: true` by default. The release workflow
-validates tags and only publishes when npm publishing is explicitly enabled
-with repository configuration.
+validates tags and only publishes to GitHub Packages when the repository
+variable `GH_PACKAGES_PUBLISH_ENABLED=true` is set. The workflow uses the
+automatic `GITHUB_TOKEN` with `packages: write`; no npm registry token is
+required for the same-repository GitHub Packages release path. Release tags
+must match the package version exactly: `package.json` version `1.0.0` is
+published only from tag `v1.0.0`; a prerelease smoke must first commit matching
+`1.0.0-rc.1` metadata before pushing `v1.0.0-rc.1`.
 
 ## Repository Layout
 

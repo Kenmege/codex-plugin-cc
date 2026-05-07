@@ -21,6 +21,8 @@ The default review lanes are read-only:
 
 `--inherit-mcp` also expands trust indirectly through Task subagents: Anthropic documents that subagents can inherit the parent tool surface when they do not define their own tools, so project/local MCP-derived tools can become available to delegated investigations as well as the parent Claude process. Treat `--inherit-mcp` as a workspace-trust opt-in, not just a convenience flag. Source: Anthropic Claude Code subagents documentation, accessed 2026-05-07: https://docs.anthropic.com/en/docs/claude-code/sub-agents
 
+`--add-dir` resolves symlinks before grant and defaults to the parent of the workspace root as its allowed boundary. Set `CODEX_CLAUDE_ADD_DIR_BOUNDARY` to a narrower absolute path when you want to prevent sibling-project access, or to a broader trusted monorepo root when symlinked workspaces need it.
+
 `--unrestricted` disables the safe-mode fence and should only be used on trusted local diffs.
 
 ## Reporting
@@ -43,3 +45,9 @@ machine-readable readiness output. Still review setup output before sharing it
 outside a trusted private channel because it can include local runtime state
 such as auth method, API provider, subscription type, model defaults, and
 failure details.
+
+GitHub Packages npm installs from a developer machine require a personal access
+token (classic); fine-grained tokens are not supported for this registry path
+as of 2026-05-07. Prefer a single-purpose token with the minimum package scope
+needed, such as `read:packages` for installation, and store it only in the
+consumer's user-level npm configuration. Never commit token-bearing npm config.

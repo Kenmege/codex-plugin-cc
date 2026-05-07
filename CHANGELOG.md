@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 The format follows Keep a Changelog and this project uses Semantic Versioning.
 
+## [Unreleased]
+
+No unreleased changes.
+
 ## [1.0.0] - 2026-05-07
 
 ### Added
@@ -30,6 +34,8 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
 - Promoted default model to `claude-opus-4-7`.
 - Agentic safe mode is now the default; legacy structured-output-only behavior remains available with `--legacy`.
 - Subscription auth detection now suppresses API-key-only budget/beta flags and surfaces the suppression in rendered output, logs, and invocation metadata.
+- Repackaged for GitHub Packages publishing under `@kenmege/codex-plugin-cc`; the release workflow now uses `GITHUB_TOKEN` and publishes to `https://npm.pkg.github.com`.
+  References: GitHub Docs "Working with the npm registry" (https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry), "About permissions for GitHub Packages" (https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages), and "Automatic token authentication" (https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication).
 
 ### Fixed
 
@@ -37,6 +43,11 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
 - Fixed renderer crashes on missing findings arrays by validating live output and defensively rendering persisted legacy records.
 - Fixed background job state corruption risk from partial writes.
 - Fixed stale CI that referenced a missing build script and only tested one Node version.
+- Fixed release workflow safety so a tag must match `package.json` before GitHub Packages publish can run.
+- Fixed CLI help so `--help`, `-h`, and `help` exit successfully while unknown commands still return usage error code `2`.
+- Fixed the `review` lane so positional focus text is preserved instead of silently discarded.
+- Fixed stale job lock recovery when a lock holder has died, and routed detached worker stdout/stderr into the job log for early-crash diagnostics.
+- Documented the `CODEX_CLAUDE_ADD_DIR_BOUNDARY` override for symlinked monorepo and tighter-boundary deployments.
 
 ## [0.2.1] - 2026-05-07
 

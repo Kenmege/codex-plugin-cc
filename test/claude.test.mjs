@@ -612,6 +612,7 @@ test("buildWebFetchAllowlist seeds defaults, dedupes, and accepts extras", () =>
   // Must contain at least the standards bodies and clinical sources
   assert.ok(allow.includes("WebFetch(https://nvd.nist.gov/*)"));
   assert.ok(allow.includes("WebFetch(https://github.com/*)"));
+  assert.ok(allow.includes("WebFetch(https://registry.npmjs.org/*)"));
   assert.ok(allow.includes("WebFetch(https://www.nice.org.uk/*)"));
   assert.ok(allow.includes("WebFetch(https://snyk.io/*)"));
   // Dedupe: snyk should only appear once

@@ -21,6 +21,7 @@ const required = [
   "CHANGELOG.md",
   "SECURITY.md",
   "CONTRIBUTING.md",
+  ".npmrc",
   "docs/architecture.md",
   "scripts/claude-review-companion.mjs",
   "scripts/bin/git-safe.mjs",
@@ -40,6 +41,7 @@ const pluginManifest = JSON.parse(fs.readFileSync(path.join(root, ".codex-plugin
 const marketplaceManifest = JSON.parse(fs.readFileSync(path.join(root, ".agents/plugins/marketplace.json"), "utf8"));
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 const packageLock = JSON.parse(fs.readFileSync(path.join(root, "package-lock.json"), "utf8"));
+const npmrc = fs.readFileSync(path.join(root, ".npmrc"), "utf8");
 JSON.parse(fs.readFileSync(path.join(root, "schemas/review-output.schema.json"), "utf8"));
 JSON.parse(fs.readFileSync(path.join(root, "schemas/elite-review-output.schema.json"), "utf8"));
 JSON.parse(fs.readFileSync(path.join(root, "schemas/agentic-review-output.schema.json"), "utf8"));
@@ -54,6 +56,29 @@ if (pluginManifest.interface.defaultPrompt.length > 3) {
 
 if (packageJson.version !== pluginManifest.version) {
   throw new Error("package.json and .codex-plugin/plugin.json versions must match.");
+}
+
+if (packageJson.name !== "@kenmege/codex-plugin-cc") {
+  throw new Error("package.json name must be scoped for GitHub Packages: @kenmege/codex-plugin-cc.");
+}
+
+const repositoryUrl = packageJson.repository?.url?.replace(/^git\+/, "");
+if (repositoryUrl !== "https://github.com/Kenmege/codex-plugin-cc.git") {
+  throw new Error(
+    "package.json repository.url must point at the canonical GitHub repository (with or without the git+ prefix)."
+  );
+}
+
+if (
+  packageJson.publishConfig?.registry !== "https://npm.pkg.github.com" ||
+  packageJson.publishConfig?.access !== "restricted" ||
+  packageJson.publishConfig?.provenance !== true
+) {
+  throw new Error("package.json publishConfig must target GitHub Packages with restricted provenance publishing.");
+}
+
+if (!npmrc.includes("@kenmege:registry=https://npm.pkg.github.com")) {
+  throw new Error(".npmrc must route @kenmege packages to https://npm.pkg.github.com.");
 }
 
 if (marketplaceManifest.name !== "claude-review-private") {

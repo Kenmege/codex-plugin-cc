@@ -1,4 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 
 export const DEFAULT_TERMINATION_GRACE_MS = 7_500;
 
@@ -180,12 +182,31 @@ export function binaryAvailable(command, args = ["--help"], options = {}) {
 }
 
 export function spawnDetached(command, args, options = {}) {
-  const child = spawn(command, args, {
-    cwd: options.cwd,
-    env: options.env,
-    detached: true,
-    stdio: "ignore"
-  });
+  const openFds = [];
+  let stdio = "ignore";
+
+  if (options.logFile) {
+    fs.mkdirSync(path.dirname(options.logFile), { recursive: true });
+    const logFd = fs.openSync(options.logFile, "a", 0o600);
+    openFds.push(logFd);
+    stdio = ["ignore", logFd, logFd];
+  }
+
+  let child;
+  try {
+    child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      detached: true,
+      stdio
+    });
+  } finally {
+    for (const fd of openFds) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+  }
   child.unref();
   return child.pid;
 }
