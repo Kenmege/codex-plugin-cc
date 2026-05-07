@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 
@@ -27,7 +28,6 @@ test("package files list excludes bump-version from the shipped tarball surface"
 test("public-facing docs do not contain private local machine paths", () => {
   for (const relativePath of [
     "README.md",
-    "docs/CODEX_ELITE_SHIP_PROMPT.md",
     "commands/review.md",
     "commands/adversarial-review.md",
     "commands/elite-review.md",
@@ -40,6 +40,15 @@ test("public-facing docs do not contain private local machine paths", () => {
   ]) {
     assert.doesNotMatch(read(relativePath), /\/Users\/kenmege/, relativePath);
   }
+});
+
+test("internal prompt artifacts are not tracked for public release", () => {
+  const trackedPromptFiles = execFileSync("git", ["ls-files", "docs/*_PROMPT.md"], {
+    cwd: root,
+    encoding: "utf8"
+  }).trim();
+  assert.equal(trackedPromptFiles, "");
+  assert.match(read(".gitignore"), /^docs\/\*_PROMPT\.md$/m);
 });
 
 test("Copilot code review instructions are present for GitHub review agents", () => {

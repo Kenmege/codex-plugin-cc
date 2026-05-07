@@ -150,3 +150,6 @@ output/
 plugins/codex/.generated/
 /.claude-review/
 /coverage/
+
+# Internal one-shot review or release prompts should not be published.
+docs/*_PROMPT.md
