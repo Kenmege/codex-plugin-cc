@@ -22,7 +22,7 @@ const required = [
   "SECURITY.md",
   "CONTRIBUTING.md",
   "CODE_OF_CONDUCT.md",
-  "RELEASE_NOTES_v1.0.2.md",
+  "RELEASE_NOTES_v1.0.3.md",
   ".npmrc",
   ".github/CODEOWNERS",
   ".github/PULL_REQUEST_TEMPLATE.md",
@@ -82,10 +82,10 @@ if (repositoryUrl !== "https://github.com/Kenmege/codex-plugin-cc.git") {
 
 if (
   packageJson.publishConfig?.registry !== "https://npm.pkg.github.com" ||
-  packageJson.publishConfig?.access !== "restricted" ||
+  packageJson.publishConfig?.access !== "public" ||
   Object.hasOwn(packageJson.publishConfig, "provenance")
 ) {
-  throw new Error("package.json publishConfig must target restricted GitHub Packages publishing without npm provenance.");
+  throw new Error("package.json publishConfig must target public GitHub Packages publishing without package-level npm provenance.");
 }
 
 if (!npmrc.includes("@kenmege:registry=https://npm.pkg.github.com")) {

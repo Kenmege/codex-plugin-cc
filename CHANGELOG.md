@@ -20,6 +20,20 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
 - Hardened Claude review workflow auth selection so public fork PRs are skipped
   with a notice when GitHub withholds repository Actions secrets.
 
+## [1.0.3] — 2026-05-08
+
+First public OSS release of @kenmege/codex-plugin-cc.
+
+- Repository visibility flipped from private to public.
+- `release.yml`: `npm publish --access public --provenance` so the
+  package is consumable by anyone and ships with a provenance
+  attestation. Replaces the `--access restricted` private-era
+  publish path used for 1.0.1 and 1.0.2.
+- `release.yml`: new step that auto-creates a GitHub Release for
+  every published tag, sourced from `RELEASE_NOTES_v${VERSION}.md`.
+- 1.0.0 / 1.0.1 / 1.0.2 were private-era launch attempts; 1.0.3 is
+  the version readers should depend on.
+
 ## [1.0.2] — 2026-05-08
 
 - Workflow fix: removed npm provenance from the restricted GitHub Packages

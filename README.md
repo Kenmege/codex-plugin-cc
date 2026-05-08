@@ -60,8 +60,8 @@ Codex slash commands are available once the plugin marketplace is loaded:
 - Fenced external access: `WebFetch` starts with a domain allowlist and expands
   only through explicit `--web-domain` flags.
 - Strict release controls: pinned GitHub Actions, Node 18/20/22 CI, package
-  content checks, tag/package version matching, and restricted GitHub Packages
-  publishing configuration.
+  content checks, tag/package version matching, and public GitHub Packages
+  publishing with provenance attestation.
 - Runtime validation: structured review output is validated before rendering,
   including persisted background-job results.
 
@@ -230,9 +230,9 @@ GitHub URL unless intentionally testing the public marketplace path.
 
 ### GitHub Packages install
 
-Consumers with repository/package access can install the helper from GitHub
-Packages. GitHub Packages uses `https://npm.pkg.github.com` for npm packages
-and requires a personal access token (classic) for developer-machine npm auth.
+Consumers can install the helper from GitHub Packages. GitHub Packages uses
+`https://npm.pkg.github.com` for npm packages and requires a personal access
+token (classic) for developer-machine npm auth.
 For install-only access, use the least-privileged token scope that works for
 the package visibility, typically `read:packages`.
 
@@ -410,9 +410,9 @@ and only publishes when the repository variable
 `GH_PACKAGES_PUBLISH_ENABLED=true` is set. The workflow uses the automatic
 `GITHUB_TOKEN` with `packages: write`; no npm registry token is required for the
 same-repository GitHub Packages release path. Release tags must match the
-package version exactly: `package.json` version `1.0.2` is published only from
-tag `v1.0.2`; a prerelease smoke must first commit matching `1.0.2-rc.1`
-metadata before pushing `v1.0.2-rc.1`.
+package version exactly: `package.json` version `1.0.3` is published only from
+tag `v1.0.3`; a prerelease smoke must first commit matching `1.0.3-rc.1`
+metadata before pushing `v1.0.3-rc.1`.
 
 ## Repository Layout
 

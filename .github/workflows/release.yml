@@ -6,7 +6,8 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: read
+  contents: write
+  id-token: write
   packages: write
 
 jobs:
@@ -39,22 +40,42 @@ jobs:
         run: npm run pack:check
 
       - name: Verify tag matches package version
+        id: tag-version-gate
         run: |
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          node -p "require('./package.json').version" > .release-package-version
+          read -r PACKAGE_VERSION < .release-package-version
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
             echo "Release tag v${TAG_VERSION} does not match package.json version ${PACKAGE_VERSION}." >&2
             echo "Update package.json, package-lock.json, and .codex-plugin/plugin.json before pushing this tag." >&2
             exit 1
           fi
+          printf 'version=%s\n' "$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Publish to GitHub Packages
         if: ${{ env.GH_PACKAGES_PUBLISH_ENABLED == 'true' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npm publish --access restricted
+          npm publish --access public --provenance
 
       - name: Skip GitHub Packages publish
         if: ${{ env.GH_PACKAGES_PUBLISH_ENABLED != 'true' }}
         run: echo "GH_PACKAGES_PUBLISH_ENABLED is not 'true'. To publish to @kenmege/codex-plugin-cc, set the GitHub repository variable GH_PACKAGES_PUBLISH_ENABLED=true."
+
+      - name: Create GitHub Release
+        if: ${{ success() && env.GH_PACKAGES_PUBLISH_ENABLED == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.tag-version-gate.outputs.version }}"
+          NOTES_FILE="RELEASE_NOTES_v${VERSION}.md"
+          if [ ! -f "$NOTES_FILE" ]; then
+            echo "First public release of @kenmege/codex-plugin-cc v${VERSION}." > "$NOTES_FILE.gen"
+            NOTES_FILE="$NOTES_FILE.gen"
+          fi
+          gh release create "v${VERSION}" \
+            --repo "${{ github.repository }}" \
+            --title "v${VERSION}" \
+            --notes-file "$NOTES_FILE" \
+            --latest
