@@ -1,0 +1,28 @@
+# Code Owners for codex-plugin-cc
+#
+# This file declares who is automatically requested for review on PRs that
+# touch matching paths. CODEOWNERS only auto-requests humans/teams with
+# write access; AI reviewer apps (Claude, Codex Connector, Devin, Copilot)
+# are wired separately via their own GitHub App configurations and the
+# Copilot ruleset on `main`.
+#
+# Reference: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner — all paths fall back to this.
+*                                  @Kenmege
+
+# Workflow + release surfaces — extra-careful review.
+.github/                           @Kenmege
+.github/workflows/                 @Kenmege
+
+# Security-sensitive surfaces.
+SECURITY.md                        @Kenmege
+schemas/                           @Kenmege
+scripts/bin/git-safe.mjs           @Kenmege
+scripts/lib/claude.mjs             @Kenmege
+
+# Release-critical metadata.
+package.json                       @Kenmege
+package-lock.json                  @Kenmege
+.codex-plugin/plugin.json          @Kenmege
+CHANGELOG.md                       @Kenmege

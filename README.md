@@ -1,11 +1,69 @@
 # Claude Review Plugin For Codex
 
-The best Claude review plugin for any Codex CLI session. Runs **fully agentic
-Claude Opus 4.7** and **long-context Sonnet 4.6** reviewers with read-only
-access to your workspace via Read, Glob, Grep, Task (sub-agents), WebSearch,
-a domain-fenced WebFetch, and a narrow git wrapper that rejects path-escape
-attempts. Every elite-tier finding must cite tool-call evidence — the schema
-enforces it.
+[![CI](https://github.com/Kenmege/codex-plugin-cc/actions/workflows/pull-request-ci.yml/badge.svg)](https://github.com/Kenmege/codex-plugin-cc/actions/workflows/pull-request-ci.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D18.18-brightgreen.svg)](#requirements)
+
+> Claude reviews your Codex diffs. Read-only, evidence-cited, and agentic.
+
+Codex CLI sessions can ask Claude Opus 4.7 or long-context Sonnet 4.6 for a
+high-scrutiny adversarial review of any diff. The reviewer gets read-only
+workspace access through `Read`, `Glob`, `Grep`, Task sub-agents, a
+domain-fenced `WebFetch`, and a narrow git wrapper. It does not get `Edit`,
+`Write`, raw shell, or arbitrary git by default. Every elite-tier finding must
+cite tool-call evidence, and malformed structured output fails closed.
+
+## 60-Second Quickstart
+
+```bash
+git clone https://github.com/Kenmege/codex-plugin-cc.git
+cd codex-plugin-cc
+npm install -g .
+codex-claude-review setup
+```
+
+Then run a review from any git workspace:
+
+```bash
+codex-claude-review review
+codex-claude-review elite-review --base main
+codex-claude-review security-review --add-dir ../shared-libs
+```
+
+Codex slash commands are available once the plugin marketplace is loaded:
+`/claude-review:review`, `/claude-review:elite-review`,
+`/claude-review:deep-review`, and `/claude-review:security-review`.
+
+## Requirements
+
+- Node.js 18.18 or newer.
+- Git on `PATH`.
+- Claude Code CLI authenticated locally for direct helper usage.
+- Codex CLI with local plugin marketplace support for slash-command usage.
+
+## Five Review Lanes
+
+| Lane | Purpose |
+|---|---|
+| `review` | Quick agentic Claude review for everyday diffs. |
+| `adversarial-review` | Skeptical challenge pass for risky changes. |
+| `elite-review` | Exhaustive ship/no-ship review with systemic risks and blind spots. |
+| `deep-review` | Opus 4.7 max effort with parallel Task sub-agent investigation. |
+| `security-review` | OWASP/CWE-focused review with exploitability classification. |
+
+## Why Trust The Boundary?
+
+- Read-only by default: `Edit`, `Write`, `NotebookEdit`, raw shell, and raw git
+  are outside the safe-mode tool catalog.
+- Prompt-injection resistant framing: diff, focus text, and workspace guidance
+  are wrapped as untrusted data before Claude sees them.
+- Fenced external access: `WebFetch` starts with a domain allowlist and expands
+  only through explicit `--web-domain` flags.
+- Strict release controls: pinned GitHub Actions, Node 18/20/22 CI, package
+  content checks, tag/package version matching, and GitHub Packages provenance
+  configuration.
+- Runtime validation: structured review output is validated before rendering,
+  including persisted background-job results.
 
 This repository started from `openai/codex-plugin-cc` and keeps that history,
 but the runtime here is deliberately reversed:
@@ -13,7 +71,28 @@ but the runtime here is deliberately reversed:
 - upstream plugin: Claude Code -> Codex review/runtime
 - this plugin: Codex -> Claude review/runtime
 
-## What You Get
+## Reviewer Composition
+
+This repository dogfoods its own thesis: every pull request is designed for
+review by four agents with distinct strengths.
+
+| Reviewer | Trigger | Strength |
+|---|---|---|
+| **GitHub Copilot** | automatic on every PR | breadth, fast, high-recall on style and obvious bugs |
+| **Codex (OpenAI GPT-5.5)** | `@codex` PR comment | senior-engineer reasoning, forensic depth on architecture and release safety |
+| **Devin (Cognition)** | `@devin` PR comment | autonomous engineering; can implement fixes, not just review |
+| **Claude (Anthropic Opus 4.7)** | `@claude` PR comment, plus automatic on PR open | adversarial code review, evidence-cited findings, schema-enforced output through this plugin |
+
+Contributors should expect overlapping but complementary feedback.
+Claude auto-review is skipped on untrusted fork PRs when GitHub withholds
+repository Actions secrets; maintainers can still trigger a safe follow-up once
+the PR is ready for deeper review.
+Disagreements between reviewers are productive. The v0.2.x to v0.2.1
+hardening of this plugin came from a Claude Opus plus Codex GPT-5.5
+adversarial review pair where both returned independent NO_SHIP verdicts on
+convergent control-plane issues.
+
+## Detailed Capabilities
 
 Five review lanes, all agentic by default:
 
@@ -30,7 +109,7 @@ Five review lanes, all agentic by default:
 Plus the operational surface:
 
 - `/claude-review:setup` — verify local Claude CLI readiness and report
-  whether subscription auth is detected (which suppresses budget/beta flags).
+  whether subscription auth is detected (which suppresses budget caps).
   Use `--json` for machine-parseable hook output.
 - `/claude-review:status`, `/claude-review:result`, `/claude-review:cancel` —
   manage background review jobs.
@@ -102,8 +181,8 @@ Large review snapshots automatically switch to a long-context profile:
 
 - model: `claude-sonnet-4-6`
 - effort: `high`
-- beta header: `context-1m-2025-08-07` *(only honored on api-key auth; on
-  subscription auth the helper suppresses `--betas` and surfaces a NOTE)*
+- 1M context window is GA on Sonnet 4.6 / Opus 4.6+ at standard
+  pricing — no beta header required.
 
 Deep-review lane defaults:
 
@@ -114,7 +193,7 @@ Deep-review lane defaults:
   NOTE. Use `--timeout-ms` for a wall-clock cap.)*
 
 `/claude-review:setup` now reports whether subscription auth is detected so
-you know up-front whether the budget/beta caps will apply.
+you know up-front whether the budget cap will apply.
 
 ## Install
 
@@ -224,7 +303,7 @@ All review-like commands accept:
 | `--model <name>`              | Override the model (e.g., `claude-sonnet-4-6`)                   |
 | `--effort low\|medium\|high\|xhigh\|max` | Override effort                                       |
 | `--profile quality\|long-context` | Force a profile                                              |
-| `--long-context`              | Opt into the Sonnet 1M long-context beta                         |
+| `--long-context`              | Opt into the Sonnet 1M long-context profile                      |
 | `--legacy`                    | Disable agentic mode (structured output only, no tool access)    |
 | `--agentic`                   | Force agentic mode on (default for all lanes)                    |
 | `--unrestricted`              | Disable the safe-mode tool fence (raw shell, loud banner).       |
@@ -254,9 +333,9 @@ Setup accepts `--json` for machine-parseable readiness checks.
 - `--include-partial-messages` so the streaming activity log captures
   tool-call telemetry, token counts, cost, and duration.
 - Subscription auth detection (`isSubscriptionAuth`) automatically suppresses
-  `--max-budget-usd` and `--betas` (which Claude only enforces on api-key
-  auth) and surfaces a NOTE in rendered output, job logs, and invocation
-  metadata explaining why the cap/beta is not honored.
+  `--max-budget-usd` (which Claude only enforces on api-key auth) and surfaces
+  a NOTE in rendered output, job logs, and invocation metadata explaining why
+  the cap is not honored.
 - The stream parser tracks malformed JSON line count, exposes it under
   `activity.parseErrors`, and fails closed when no structured output can be
   recovered.

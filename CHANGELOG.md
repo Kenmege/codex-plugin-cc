@@ -6,9 +6,26 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
 
-## [1.0.0] - 2026-05-07
+- Added public-launch community files: issue templates, PR template,
+  CODEOWNERS, Code of Conduct, and v1.0.0 release notes.
+- Added README launch hero, quickstart, CI/license/Node badges, and reviewer
+  composition documentation.
+
+### Fixed
+
+- Relaxed marketplace-name validation so forks can rename their private Codex
+  marketplace without breaking `npm run check`.
+- Hardened Claude review workflow auth selection so public fork PRs are skipped
+  with a notice when GitHub withholds repository Actions secrets.
+
+## [1.0.0] - 2026-05-08
+
+- Removed the legacy `context-1m-2025-08-07` beta-header injection from the
+  long-context Sonnet profile. 1M context is GA on Sonnet 4.6 and Opus 4.6+ at
+  standard pricing as of 2026-03-13; the legacy header was retired for Sonnet 4
+  / 4.5 on 2026-04-30.
 
 ### Added
 
@@ -33,7 +50,7 @@ No unreleased changes.
 
 - Promoted default model to `claude-opus-4-7`.
 - Agentic safe mode is now the default; legacy structured-output-only behavior remains available with `--legacy`.
-- Subscription auth detection now suppresses API-key-only budget/beta flags and surfaces the suppression in rendered output, logs, and invocation metadata.
+- Subscription auth detection now suppresses API-key-only budget flags and surfaces the suppression in rendered output, logs, and invocation metadata.
 - Repackaged for GitHub Packages publishing under `@kenmege/codex-plugin-cc`; the release workflow now uses `GITHUB_TOKEN` and publishes to `https://npm.pkg.github.com`.
   References: GitHub Docs "Working with the npm registry" (https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry), "About permissions for GitHub Packages" (https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages), and "Automatic token authentication" (https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication).
 

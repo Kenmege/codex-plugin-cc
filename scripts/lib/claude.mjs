@@ -8,7 +8,6 @@ export const DEFAULT_MODEL = "claude-opus-4-7";
 export const DEFAULT_EFFORT = "high";
 export const DEEP_REVIEW_EFFORT = "max";
 export const LONG_CONTEXT_MODEL = "claude-sonnet-4-6";
-export const LONG_CONTEXT_BETA = "context-1m-2025-08-07";
 export const AUTO_LONG_CONTEXT_BYTES = 250_000;
 export const CLAUDE_SETTING_SOURCES = "project,local";
 export const CLAUDE_REVIEW_TIMEOUT_MS = 30 * 60 * 1000;
@@ -144,7 +143,6 @@ function buildClaudeCommandArgs(prompt, options = {}) {
     model,
     effort,
     schema,
-    betas = [],
     agentic = false,
     unrestricted = false,
     tools = null,
@@ -157,8 +155,7 @@ function buildClaudeCommandArgs(prompt, options = {}) {
     maxBudgetUsd = null,
     strictMcpConfig = false,
     extraArgs = [],
-    suppressBudget = false,
-    suppressBetas = false
+    suppressBudget = false
   } = options;
 
   const args = [
@@ -211,12 +208,6 @@ function buildClaudeCommandArgs(prompt, options = {}) {
 
   if (schema) {
     args.push("--json-schema", schema);
-  }
-
-  if (!suppressBetas) {
-    for (const beta of betas) {
-      args.push("--betas", beta);
-    }
   }
 
   for (const mcpConfig of mcpConfigs) {
@@ -578,7 +569,7 @@ export function selectClaudeProfile(options = {}) {
     return {
       model: LONG_CONTEXT_MODEL,
       effort: options.effort ?? DEFAULT_EFFORT,
-      betas: [LONG_CONTEXT_BETA],
+      betas: [],
       profile: "long-context",
       notes
     };
@@ -830,7 +821,6 @@ export function buildReviewInvocation(snapshot, reviewKind, schemaPath, options 
     model: snapshot.model,
     effort: snapshot.effort,
     schema,
-    betas: snapshot.betas,
     agentic,
     unrestricted,
     tools: agentic && !unrestricted ? AGENTIC_TOOLS : null,
@@ -843,15 +833,14 @@ export function buildReviewInvocation(snapshot, reviewKind, schemaPath, options 
     maxBudgetUsd: parsePositiveNumber(snapshot.maxBudgetUsd) ?? null,
     strictMcpConfig: snapshot.strictMcpConfig !== false,
     extraArgs: snapshot.extraArgs ?? [],
-    suppressBudget: subscriptionAuth,
-    suppressBetas: subscriptionAuth
+    suppressBudget: subscriptionAuth
   });
 
   return {
     args,
     prompt,
     suppressedBudget: subscriptionAuth && Boolean(parsePositiveNumber(snapshot.maxBudgetUsd)),
-    suppressedBetas: subscriptionAuth && Array.isArray(snapshot.betas) && snapshot.betas.length > 0
+    suppressedBetas: false
   };
 }
 

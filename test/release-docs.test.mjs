@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -106,6 +107,59 @@ test("Copilot code review instructions are present for GitHub review agents", ()
   assert.match(source, /JSON schemas and `validateStructuredReviewOutput` stay in sync/);
 });
 
+test("Claude Code workflow is pinned, current, and auth-gated", () => {
+  const workflow = read(".github/workflows/claude.yml");
+  const prompt = read(".github/claude-review-prompt.md");
+  const readme = read("README.md");
+  const contributing = read("CONTRIBUTING.md");
+
+  assert.match(workflow, /pull_request:\n\s+types: \[opened, synchronize, ready_for_review, reopened\]/);
+  assert.match(workflow, /anthropics\/claude-code-action@[a-f0-9]{40}/);
+  assert.doesNotMatch(workflow, /anthropics\/claude-code-action@v1/);
+  assert.doesNotMatch(workflow, /^\s+mode:/m);
+  assert.doesNotMatch(workflow, /prompt-file:/);
+  assert.match(workflow, /Run Claude auto review with OAuth/);
+  assert.match(workflow, /Run Claude auto review with API key/);
+  assert.match(workflow, /Run Claude interactive response with OAuth/);
+  assert.match(workflow, /Run Claude interactive response with API key/);
+  assert.match(workflow, /anthropic_api_key: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}/);
+  assert.match(workflow, /claude_code_oauth_token: \$\{\{ secrets\.CLAUDE_CODE_OAUTH_TOKEN \}\}/);
+  assert.match(workflow, /Verify Claude auth secret configured/);
+  assert.match(workflow, /Claude Code Action requires ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN/);
+  assert.match(workflow, /IS_UNTRUSTED_FORK_PR/);
+  assert.match(workflow, /does not pass repository Actions secrets to forked pull_request workflows/);
+  assert.match(workflow, /--append-system-prompt/);
+  assert.match(prompt, /Trust boundary:/);
+  assert.match(prompt, /Review priorities, in order:/);
+  assert.match(readme, /Reviewer Composition/);
+  assert.match(readme, /Claude \(Anthropic Opus 4\.7\)/);
+  assert.match(contributing, /Working With Reviewers/);
+  assert.match(contributing, /ANTHROPIC_API_KEY/);
+});
+
+test("public launch community files and release notes are present", () => {
+  const codeowners = read(".github/CODEOWNERS");
+  const bug = read(".github/ISSUE_TEMPLATE/bug_report.yml");
+  const feature = read(".github/ISSUE_TEMPLATE/feature_request.yml");
+  const security = read(".github/ISSUE_TEMPLATE/security_report.yml");
+  const issueConfig = read(".github/ISSUE_TEMPLATE/config.yml");
+  const prTemplate = read(".github/PULL_REQUEST_TEMPLATE.md");
+  const conduct = read("CODE_OF_CONDUCT.md");
+  const releaseNotes = read("RELEASE_NOTES_v1.0.0.md");
+
+  assert.match(codeowners, /^\*\s+@Kenmege/m);
+  assert.match(codeowners, /CODEOWNERS only auto-requests humans\/teams with/);
+  assert.match(bug, /Claude CLI version/);
+  assert.match(bug, /Sanitized log tail/);
+  assert.match(feature, /Affected review lane\(s\)/);
+  assert.match(security, /Do not include exploit details in a public issue/);
+  assert.match(issueConfig, /blank_issues_enabled: false/);
+  assert.match(prTemplate, /No tokens, API keys, or credentials/);
+  assert.match(conduct, /Contributor Covenant/);
+  assert.match(releaseNotes, /v1\.0\.0/);
+  assert.match(releaseNotes, /Security Hardening/);
+});
+
 test("security docs describe inherit-mcp Task subagent trust expansion", () => {
   const architecture = read("docs/architecture.md");
   const security = read("SECURITY.md");
@@ -140,4 +194,34 @@ test("architecture docs reference the exported structured parser name", () => {
   const source = read("docs/architecture.md");
   assert.match(source, /parseClaudeStructuredOutput/);
   assert.doesNotMatch(source, new RegExp("parseClaudeStructured" + "Review"));
+});
+
+test("repository validation accepts fork-renamed local marketplace names", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-plugin-cc-fork-"));
+  try {
+    fs.cpSync(root, tempRoot, {
+      recursive: true,
+      filter(source) {
+        const relative = path.relative(root, source);
+        return (
+          relative !== ".git" &&
+          !relative.startsWith(".git/") &&
+          relative !== ".claude-review" &&
+          !relative.startsWith(".claude-review/")
+        );
+      }
+    });
+    const marketplacePath = path.join(tempRoot, ".agents/plugins/marketplace.json");
+    const marketplace = JSON.parse(fs.readFileSync(marketplacePath, "utf8"));
+    marketplace.name = "my-forked-review-marketplace";
+    fs.writeFileSync(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`);
+
+    const output = execFileSync("node", ["scripts/validate-repo.mjs"], {
+      cwd: tempRoot,
+      encoding: "utf8"
+    });
+    assert.match(output, /Repository validation passed/);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
