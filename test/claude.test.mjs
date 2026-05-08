@@ -25,6 +25,7 @@ import {
   parseClaudeStructuredOutput,
   probeClaudeStructuredOutput,
   runClaudeStructuredReview,
+  selectClaudeProfile,
   summarizeClaudeStreamActivity,
   validateStructuredReviewOutput
 } from "../scripts/lib/claude.mjs";
@@ -492,6 +493,16 @@ test("DEFAULT_MODEL is the latest Opus 4.7 build", () => {
   assert.equal(DEFAULT_MODEL, "claude-opus-4-7");
 });
 
+test("long-context profile no longer ships the retired " + "context-" + "1m-2025-08-07 beta header", () => {
+  const profile = selectClaudeProfile({ longContext: true });
+
+  assert.equal(profile.profile, "long-context");
+  assert.equal(profile.model, "claude-sonnet-4-6");
+  assert.deepEqual(profile.betas, []);
+  assert.equal(profile.betas.length, 0);
+  assert.ok(!JSON.stringify(profile).includes("context-" + "1m"));
+});
+
 test("buildReviewerSystemPrompt includes the read-only constraint, trust boundary, and tool catalog", () => {
   const prompt = buildReviewerSystemPrompt("review");
   assert.match(prompt, /read-only/i);
@@ -646,7 +657,8 @@ test("buildReviewPrompt wraps diff and focus in untrusted delimiters across all 
   }
 });
 
-test("runClaudeStructuredReview wires agentic flags, system prompt, mcp config, and budget cap (api-key auth)", async () => {
+test("runClaudeStructuredReview wires agentic flags, system prompt, mcp config, long-context model, and budget cap (api-key auth)", async () => {
+  const profile = selectClaudeProfile({ longContext: true });
   const fake = withFakeClaude(
     JSON.stringify({
       type: "result",
@@ -671,9 +683,9 @@ test("runClaudeStructuredReview wires agentic flags, system prompt, mcp config, 
         targetLabel: "working tree diff",
         focusText: "",
         contextText: "diff --git a/app.js b/app.js",
-        model: "claude-opus-4-7",
-        effort: "high",
-        betas: ["context-1m-2025-08-07"],
+        model: profile.model,
+        effort: profile.effort,
+        betas: profile.betas,
         agentic: true,
         permissionMode: "default",
         mcpConfigs: ["/tmp/mcp.json"],
@@ -708,18 +720,19 @@ test("runClaudeStructuredReview wires agentic flags, system prompt, mcp config, 
     assert.ok(args.includes("--strict-mcp-config"));
     assert.ok(args.includes("--add-dir"));
     assert.ok(args.includes("/tmp/extra-dir"));
-    // api-key auth honors budget + betas
+    assert.deepEqual(profile.betas, []);
+    assert.ok(args.includes("claude-sonnet-4-6"));
+    assert.ok(!args.includes("--betas"));
+    // api-key auth honors budget
     assert.ok(args.includes("--max-budget-usd"));
     assert.ok(args.includes("12.5"));
-    assert.ok(args.includes("--betas"));
-    assert.ok(args.includes("context-1m-2025-08-07"));
     assert.ok(!args.includes("--disable-slash-commands"));
   } finally {
     fake.restore();
   }
 });
 
-test("runClaudeStructuredReview suppresses --max-budget-usd and --betas under subscription auth", async () => {
+test("runClaudeStructuredReview suppresses --max-budget-usd under subscription auth and never passes beta args", async () => {
   const fake = withFakeClaude(
     JSON.stringify({
       type: "result",
@@ -746,7 +759,7 @@ test("runClaudeStructuredReview suppresses --max-budget-usd and --betas under su
         contextText: "diff --git a/app.js b/app.js",
         model: "claude-sonnet-4-6",
         effort: "high",
-        betas: ["context-1m-2025-08-07"],
+        betas: [],
         agentic: true,
         permissionMode: "default",
         maxBudgetUsd: 25,
@@ -761,10 +774,9 @@ test("runClaudeStructuredReview suppresses --max-budget-usd and --betas under su
     assert.ok(!args.includes("--max-budget-usd"));
     assert.ok(!args.includes("25"));
     assert.ok(!args.includes("--betas"));
-    assert.ok(!args.includes("context-1m-2025-08-07"));
     assert.equal(result.invocationMeta.subscriptionAuth, true);
     assert.equal(result.invocationMeta.suppressedBudget, true);
-    assert.equal(result.invocationMeta.suppressedBetas, true);
+    assert.equal(result.invocationMeta.suppressedBetas, false);
   } finally {
     fake.restore();
   }

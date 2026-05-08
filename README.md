@@ -109,7 +109,7 @@ Five review lanes, all agentic by default:
 Plus the operational surface:
 
 - `/claude-review:setup` — verify local Claude CLI readiness and report
-  whether subscription auth is detected (which suppresses budget/beta flags).
+  whether subscription auth is detected (which suppresses budget caps).
   Use `--json` for machine-parseable hook output.
 - `/claude-review:status`, `/claude-review:result`, `/claude-review:cancel` —
   manage background review jobs.
@@ -181,8 +181,8 @@ Large review snapshots automatically switch to a long-context profile:
 
 - model: `claude-sonnet-4-6`
 - effort: `high`
-- beta header: `context-1m-2025-08-07` *(only honored on api-key auth; on
-  subscription auth the helper suppresses `--betas` and surfaces a NOTE)*
+- 1M context window is GA on Sonnet 4.6 / Opus 4.6+ at standard
+  pricing — no beta header required.
 
 Deep-review lane defaults:
 
@@ -193,7 +193,7 @@ Deep-review lane defaults:
   NOTE. Use `--timeout-ms` for a wall-clock cap.)*
 
 `/claude-review:setup` now reports whether subscription auth is detected so
-you know up-front whether the budget/beta caps will apply.
+you know up-front whether the budget cap will apply.
 
 ## Install
 
@@ -303,7 +303,7 @@ All review-like commands accept:
 | `--model <name>`              | Override the model (e.g., `claude-sonnet-4-6`)                   |
 | `--effort low\|medium\|high\|xhigh\|max` | Override effort                                       |
 | `--profile quality\|long-context` | Force a profile                                              |
-| `--long-context`              | Opt into the Sonnet 1M long-context beta                         |
+| `--long-context`              | Opt into the Sonnet 1M long-context profile                      |
 | `--legacy`                    | Disable agentic mode (structured output only, no tool access)    |
 | `--agentic`                   | Force agentic mode on (default for all lanes)                    |
 | `--unrestricted`              | Disable the safe-mode tool fence (raw shell, loud banner).       |
@@ -333,9 +333,9 @@ Setup accepts `--json` for machine-parseable readiness checks.
 - `--include-partial-messages` so the streaming activity log captures
   tool-call telemetry, token counts, cost, and duration.
 - Subscription auth detection (`isSubscriptionAuth`) automatically suppresses
-  `--max-budget-usd` and `--betas` (which Claude only enforces on api-key
-  auth) and surfaces a NOTE in rendered output, job logs, and invocation
-  metadata explaining why the cap/beta is not honored.
+  `--max-budget-usd` (which Claude only enforces on api-key auth) and surfaces
+  a NOTE in rendered output, job logs, and invocation metadata explaining why
+  the cap is not honored.
 - The stream parser tracks malformed JSON line count, exposes it under
   `activity.parseErrors`, and fails closed when no structured output can be
   recovered.

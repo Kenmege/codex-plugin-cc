@@ -40,7 +40,7 @@ management.
 
 - model: `claude-sonnet-4-6`
 - effort: `high`
-- beta header: `context-1m-2025-08-07`
+- beta header: none required (1M context GA on Sonnet 4.6+ since 2026-03-13; legacy `context-1m-2025-08-07` header retired for Sonnet 4 / 4.5 on 2026-04-30)
 - used when explicitly requested or when the review snapshot exceeds the normal
   Opus-safe inline threshold
 
