@@ -6,9 +6,21 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
 
-## [1.0.0] - 2026-05-07
+- Added public-launch community files: issue templates, PR template,
+  CODEOWNERS, Code of Conduct, and v1.0.0 release notes.
+- Added README launch hero, quickstart, CI/license/Node badges, and reviewer
+  composition documentation.
+
+### Fixed
+
+- Relaxed marketplace-name validation so forks can rename their private Codex
+  marketplace without breaking `npm run check`.
+- Hardened Claude review workflow auth selection so public fork PRs are skipped
+  with a notice when GitHub withholds repository Actions secrets.
+
+## [1.0.0] - 2026-05-08
 
 ### Added
 

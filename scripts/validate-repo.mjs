@@ -21,7 +21,17 @@ const required = [
   "CHANGELOG.md",
   "SECURITY.md",
   "CONTRIBUTING.md",
+  "CODE_OF_CONDUCT.md",
+  "RELEASE_NOTES_v1.0.0.md",
   ".npmrc",
+  ".github/CODEOWNERS",
+  ".github/PULL_REQUEST_TEMPLATE.md",
+  ".github/ISSUE_TEMPLATE/bug_report.yml",
+  ".github/ISSUE_TEMPLATE/feature_request.yml",
+  ".github/ISSUE_TEMPLATE/security_report.yml",
+  ".github/ISSUE_TEMPLATE/config.yml",
+  ".github/claude-review-prompt.md",
+  ".github/workflows/claude.yml",
   "docs/architecture.md",
   "scripts/claude-review-companion.mjs",
   "scripts/bin/git-safe.mjs",
@@ -42,6 +52,7 @@ const marketplaceManifest = JSON.parse(fs.readFileSync(path.join(root, ".agents/
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 const packageLock = JSON.parse(fs.readFileSync(path.join(root, "package-lock.json"), "utf8"));
 const npmrc = fs.readFileSync(path.join(root, ".npmrc"), "utf8");
+const claudeWorkflow = fs.readFileSync(path.join(root, ".github/workflows/claude.yml"), "utf8");
 JSON.parse(fs.readFileSync(path.join(root, "schemas/review-output.schema.json"), "utf8"));
 JSON.parse(fs.readFileSync(path.join(root, "schemas/elite-review-output.schema.json"), "utf8"));
 JSON.parse(fs.readFileSync(path.join(root, "schemas/agentic-review-output.schema.json"), "utf8"));
@@ -81,17 +92,57 @@ if (!npmrc.includes("@kenmege:registry=https://npm.pkg.github.com")) {
   throw new Error(".npmrc must route @kenmege packages to https://npm.pkg.github.com.");
 }
 
-if (marketplaceManifest.name !== "claude-review-private") {
-  throw new Error(".agents/plugins/marketplace.json must keep the private marketplace name claude-review-private.");
+if (!/anthropics\/claude-code-action@[a-f0-9]{40}/.test(claudeWorkflow)) {
+  throw new Error(".github/workflows/claude.yml must pin anthropics/claude-code-action by full commit SHA.");
 }
 
-const marketplacePlugin = marketplaceManifest.plugins?.find((entry) => entry?.name === pluginManifest.name);
+if (/anthropics\/claude-code-action@v1/.test(claudeWorkflow)) {
+  throw new Error(".github/workflows/claude.yml must not use the floating anthropics/claude-code-action@v1 ref.");
+}
+
+if (/^\s+mode:|prompt-file:/m.test(claudeWorkflow)) {
+  throw new Error(".github/workflows/claude.yml must use current v1 inputs, not deprecated mode or prompt-file inputs.");
+}
+
+const hasApiKeyInput = claudeWorkflow.includes("anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}");
+const hasOauthInput = claudeWorkflow.includes("claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}");
+const hasFailClosedStep = claudeWorkflow.includes("Verify Claude auth secret configured");
+const hasForkSecretSkip =
+  claudeWorkflow.includes("IS_UNTRUSTED_FORK_PR") &&
+  claudeWorkflow.includes("GitHub does not pass repository Actions secrets to forked pull_request workflows");
+const hasSeparateAuthSteps =
+  claudeWorkflow.includes("Run Claude auto review with OAuth") &&
+  claudeWorkflow.includes("Run Claude auto review with API key") &&
+  claudeWorkflow.includes("Run Claude interactive response with OAuth") &&
+  claudeWorkflow.includes("Run Claude interactive response with API key");
+if (!hasApiKeyInput || !hasOauthInput || !hasFailClosedStep || !hasForkSecretSkip || !hasSeparateAuthSteps) {
+  throw new Error(
+    ".github/workflows/claude.yml must fail closed, skip secretless fork PRs, and provide separate API-key/OAuth action steps so empty secrets do not poison Claude auth."
+  );
+}
+
+// JUSTIFIED: structural rather than name-locked validation so forks
+// can rename their private marketplace without lint breaking. The
+// previous string-equality check on "claude-review-private" was a
+// forkability bug: anyone forking this repo for their own private
+// Codex marketplace would hit a hard lint failure on first
+// `npm run check`. Now we enforce shape only; operator chooses the
+// name.
+if (typeof marketplaceManifest.name !== "string" || marketplaceManifest.name.trim() === "") {
+  throw new Error(".agents/plugins/marketplace.json must declare a non-empty `name`.");
+}
+
+if (!Array.isArray(marketplaceManifest.plugins) || marketplaceManifest.plugins.length === 0) {
+  throw new Error(".agents/plugins/marketplace.json must list at least one plugin.");
+}
+
+const marketplacePlugin = marketplaceManifest.plugins.find((entry) => entry?.name === pluginManifest.name);
 if (!marketplacePlugin) {
   throw new Error(".agents/plugins/marketplace.json must expose the .codex-plugin plugin name.");
 }
 
 if (marketplacePlugin.source?.source !== "local" || marketplacePlugin.source?.path !== ".") {
-  throw new Error(".agents/plugins/marketplace.json must install claude-review from the private repo root.");
+  throw new Error(".agents/plugins/marketplace.json must install the plugin from the local repo root.");
 }
 
 if (packageLock.version !== packageJson.version || packageLock.packages?.[""]?.version !== packageJson.version) {

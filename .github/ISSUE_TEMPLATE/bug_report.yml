@@ -1,0 +1,95 @@
+name: Bug report
+description: Something is broken in the plugin runtime, the workflow, or a review lane.
+title: "[bug] "
+labels:
+  - bug
+  - triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Before filing, please confirm you are not reporting a security vulnerability — those go to the private security advisory channel linked in `SECURITY.md`, not here.
+
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version
+      description: Run `npm ls @kenmege/codex-plugin-cc` from your project, or paste the value from `package.json` of this repo at the SHA you tested.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: claude_cli_version
+    attributes:
+      label: Claude CLI version
+      description: Output of `claude --version`.
+      placeholder: "2.1.x (Claude Code)"
+    validations:
+      required: true
+
+  - type: input
+    id: node_version
+    attributes:
+      label: Node.js version
+      description: Output of `node --version`.
+      placeholder: "v22.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: review_lane
+    attributes:
+      label: Affected review lane
+      multiple: true
+      options:
+        - review
+        - adversarial-review
+        - elite-review
+        - deep-review
+        - security-review
+        - setup
+        - status / result / cancel
+        - legacy mode
+        - n/a (build / lint / test)
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Minimal commands and the diff you reviewed. Sanitize any tokens, paths, or proprietary content.
+      placeholder: |
+        1. cd <project>
+        2. codex-claude-review review --base main
+        3. (paste sanitized diff or describe its shape)
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs actual behavior
+      placeholder: |
+        Expected: ...
+        Actual: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: log_tail
+    attributes:
+      label: Sanitized log tail
+      description: Last ~50 lines from `.claude-review/jobs/<job-id>.log`. Redact any sensitive paths or content.
+      render: shell
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have removed any tokens, API keys, or proprietary content from this report.
+          required: true
+        - label: I have searched existing issues and discussions for duplicates.
+          required: true

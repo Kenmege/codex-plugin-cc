@@ -1,0 +1,24 @@
+name: Security report
+description: Report suspected vulnerabilities through the private advisory channel, not a public issue.
+title: "[security] "
+labels:
+  - security
+  - triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include exploit details in a public issue.
+
+        Use GitHub private vulnerability reporting instead:
+        https://github.com/Kenmege/codex-plugin-cc/security/advisories/new
+
+        Include the affected version, impact, reproduction outline, and any suggested fix in the private advisory. Public security issues may be closed without discussion to protect users while a fix is prepared.
+
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: Acknowledgement
+      options:
+        - label: I understand that exploit details belong in a private security advisory, not this public issue.
+          required: true

@@ -17,6 +17,33 @@ npm run pack:check
 
 Do not weaken tests to pass. If a regression test exposes a real bug, fix the implementation.
 
+## Working With Reviewers
+
+When you open a pull request:
+
+- **Copilot** runs automatically. No action is needed.
+- **Claude** runs automatically on PR open and synchronize. To ask a follow-up,
+  comment `@claude <your question>` on the PR.
+- **Codex** does not run automatically. Comment `@codex review this PR` to
+  trigger it.
+- **Devin** does not run automatically. Comment `@devin <task>` to delegate
+  concrete engineering work.
+
+Treat reviewer outputs as advisory. The maintainer makes the final merge call.
+When reviewers disagree, prefer the one that cites file:line evidence. When all
+four reviewers agree something is broken, treat it as a strong signal and fix
+before merge.
+
+The Claude workflow requires one repository Actions secret for model
+authentication: `ANTHROPIC_API_KEY` for direct Anthropic API auth or
+`CLAUDE_CODE_OAUTH_TOKEN` for Claude Code OAuth auth. The workflow also uses
+GitHub OIDC (`id-token: write`) so the installed Claude GitHub App can obtain a
+short-lived repository-scoped GitHub token. Do not hardcode either credential in
+workflow files. GitHub does not pass repository Actions secrets to forked
+`pull_request` workflows, so the Claude auto-review job skips untrusted fork PRs
+with a notice instead of turning outside contributions red. Maintainer follow-up
+via `@claude` remains available once the PR is safe to inspect.
+
 ## Code Style
 
 - Prefer `const`; use `let` only where reassignment is required.
