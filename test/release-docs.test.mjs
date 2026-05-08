@@ -51,19 +51,29 @@ test("GitHub Packages release configuration is scoped and token-safe", () => {
   );
   assert.deepEqual(packageJson.publishConfig, {
     registry: "https://npm.pkg.github.com",
-    access: "restricted"
+    access: "public"
   });
   assert.match(npmrc, /^@kenmege:registry=https:\/\/npm\.pkg\.github\.com$/m);
   assert.doesNotMatch(npmrc, new RegExp("_auth" + "Token|" + "YOUR_CLASSIC_PAT"));
+  assert.match(workflow, /contents: write/);
+  assert.match(workflow, /id-token: write/);
   assert.match(workflow, /packages: write/);
   assert.match(workflow, /registry-url: https:\/\/npm\.pkg\.github\.com/);
   assert.match(workflow, /scope: "@kenmege"/);
   assert.match(workflow, /NODE_AUTH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
   assert.match(workflow, /GH_PACKAGES_PUBLISH_ENABLED/);
   assert.doesNotMatch(workflow, /npm pkg set private=false/);
-  assert.doesNotMatch(workflow, /--provenance/);
-  assert.doesNotMatch(workflow, /id-token: write/);
-  assert.match(workflow, /npm publish --access restricted/);
+  assert.match(workflow, /id: publish-package/);
+  assert.match(workflow, /gh api --paginate "\/users\/\$\{\{ github\.repository_owner \}\}\/packages\/npm\/codex-plugin-cc\/versions"/);
+  assert.match(workflow, /Package @kenmege\/codex-plugin-cc v\$\{VERSION\} already exists; skipping npm publish/);
+  assert.match(workflow, /npm publish --access public --provenance/);
+  assert.match(workflow, /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+  assert.match(workflow, /gh release view "v\$\{VERSION\}"/);
+  assert.match(workflow, /gh release edit "v\$\{VERSION\}"/);
+  assert.match(workflow, /gh release create "v\$\{VERSION\}"/);
+  assert.match(workflow, /--latest/);
+  assert.match(workflow, /--prerelease/);
+  assert.doesNotMatch(workflow, /--access restricted/);
   assert.doesNotMatch(workflow, new RegExp("NPM" + "_TOKEN|registry\\.npmjs\\.org"));
 });
 
@@ -72,11 +82,14 @@ test("release workflow fails closed when tag and package version differ", () => 
   const contributing = read("CONTRIBUTING.md");
 
   assert.match(workflow, /Verify tag matches package version/);
-  assert.match(workflow, /PACKAGE_VERSION="\$\(node -p "require\('\.\/package\.json'\)\.version"\)"/);
+  assert.match(workflow, /id: tag-version-gate/);
+  assert.match(workflow, /node -p "require\('\.\/package\.json'\)\.version" > \.release-package-version/);
+  assert.match(workflow, /read -r PACKAGE_VERSION < \.release-package-version/);
   assert.match(workflow, /TAG_VERSION="\$\{GITHUB_REF_NAME#v\}"/);
   assert.match(workflow, /Release tag v\$\{TAG_VERSION\} does not match package\.json version \$\{PACKAGE_VERSION\}/);
+  assert.match(workflow, /printf 'version=%s\\n' "\$PACKAGE_VERSION" >> "\$GITHUB_OUTPUT"/);
   assert.match(contributing, /tag and package version differ/);
-  assert.match(contributing, /1\.0\.2-rc\.1/);
+  assert.match(contributing, /1\.0\.3-rc\.1/);
 });
 
 test("public-facing docs do not contain private local machine paths", () => {
@@ -158,7 +171,7 @@ test("public launch community files and release notes are present", () => {
   const issueConfig = read(".github/ISSUE_TEMPLATE/config.yml");
   const prTemplate = read(".github/PULL_REQUEST_TEMPLATE.md");
   const conduct = read("CODE_OF_CONDUCT.md");
-  const releaseNotes = read("RELEASE_NOTES_v1.0.2.md");
+  const releaseNotes = read("RELEASE_NOTES_v1.0.3.md");
 
   assert.match(codeowners, /^\*\s+@Kenmege/m);
   assert.match(codeowners, /CODEOWNERS only auto-requests humans\/teams with/);
@@ -169,7 +182,8 @@ test("public launch community files and release notes are present", () => {
   assert.match(issueConfig, /blank_issues_enabled: false/);
   assert.match(prTemplate, /No tokens, API keys, or credentials/);
   assert.match(conduct, /Contributor Covenant/);
-  assert.match(releaseNotes, /v1\.0\.2/);
+  assert.match(releaseNotes, /v1\.0\.3/);
+  assert.match(releaseNotes, /first public OSS release/);
   assert.match(releaseNotes, /Security Hardening/);
 });
 
@@ -199,8 +213,10 @@ test("release checklist documents GitHub Packages publish switch and v-tag trigg
   assert.match(source, /GH_PACKAGES_PUBLISH_ENABLED=true/);
   assert.match(source, /GITHUB_TOKEN/);
   assert.doesNotMatch(source, new RegExp("NPM" + "_TOKEN"));
-  assert.match(source, /v1\.0\.2/);
+  assert.match(source, /v1\.0\.3/);
   assert.match(source, /matching the package version exactly/);
+  assert.match(source, /RELEASE_NOTES_v\$\{VERSION\}\.md/);
+  assert.match(source, /generated stub/);
 });
 
 test("architecture docs reference the exported structured parser name", () => {
