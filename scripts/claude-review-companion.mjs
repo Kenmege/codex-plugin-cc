@@ -642,7 +642,10 @@ async function runSnapshot(cwd, jobId, snapshot) {
       `Claude returned ${result.parsed.findings?.length ?? 0} finding(s) using ${result.activity?.toolUseCount ?? 0} tool call(s)`
     );
     if (result.invocationMeta?.fallbackUsed) {
-      appendLogLine(cwd, jobId, "Claude-only markdown fallback was used after structured no-output probe timeout", "warn");
+      appendLogLine(cwd, jobId, "Claude-only markdown fallback was used after structured path probe timeout", "warn");
+    }
+    if (result.invocationMeta?.earlyStructuredOutput) {
+      appendLogLine(cwd, jobId, "Claude structured output completed before process exit; stopped child early to avoid CLI stall");
     }
     if (result.activity?.parseErrors > 0) {
       appendLogLine(

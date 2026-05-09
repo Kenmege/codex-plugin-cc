@@ -65,6 +65,33 @@ EOF
   };
 }
 
+function withFakeClaudeExecutable(scriptBody) {
+  const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-review-bin-"));
+  const argsFile = path.join(binDir, "claude-args.txt");
+  const scriptPath = path.join(binDir, "claude");
+  fs.writeFileSync(scriptPath, `#!/bin/sh
+printf '%s\n' "$@" > "$CLAUDE_ARGS_FILE"
+${scriptBody}
+`, { mode: 0o755 });
+
+  const previousPath = process.env.PATH;
+  const previousArgsFile = process.env.CLAUDE_ARGS_FILE;
+  process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+  process.env.CLAUDE_ARGS_FILE = argsFile;
+
+  return {
+    argsFile,
+    restore() {
+      process.env.PATH = previousPath;
+      if (previousArgsFile === undefined) {
+        delete process.env.CLAUDE_ARGS_FILE;
+      } else {
+        process.env.CLAUDE_ARGS_FILE = previousArgsFile;
+      }
+    }
+  };
+}
+
 function readArgs(argsFile) {
   return fs.readFileSync(argsFile, "utf8").split(/\r?\n/).filter(Boolean);
 }
@@ -156,6 +183,18 @@ test("extractClaudeAssistantText recovers readable text from stream-json deltas"
   ].join("\n");
 
   assert.equal(extractClaudeAssistantText(stream), "VERDICT: needs diagnostics\nBLOCKERS: timeout was opaque");
+});
+
+test("parseClaudeStructuredOutput reconstructs streamed StructuredOutput input_json_delta blocks", () => {
+  const payload = JSON.stringify({ verdict: "ok", summary: "streamed", findings: [], next_steps: ["done"] });
+  const stream = [
+    JSON.stringify({ type: "stream_event", event: { type: "content_block_start", index: 2, content_block: { type: "tool_use", id: "toolu_1", name: "StructuredOutput", input: {} } } }),
+    JSON.stringify({ type: "stream_event", event: { type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: payload.slice(0, 30) } } }),
+    JSON.stringify({ type: "stream_event", event: { type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: payload.slice(30) } } }),
+    JSON.stringify({ type: "stream_event", event: { type: "content_block_stop", index: 2 } })
+  ].join("\n");
+
+  assert.deepEqual(parseClaudeStructuredOutput(stream), { verdict: "ok", summary: "streamed", findings: [], next_steps: ["done"] });
 });
 
 test("parseClaudeStructuredOutput surfaces malformed-JSON count when no result event", () => {
@@ -495,6 +534,80 @@ test("runClaudeStructuredReview parses stream-json structured output", async () 
     assert.ok(args.includes("--json-schema"));
     assert.ok(args.includes("--disable-slash-commands"));
     assert.ok(args.includes("stream-json"));
+  } finally {
+    fake.restore();
+  }
+});
+
+test("runClaudeStructuredReview stops early after complete streamed StructuredOutput", async () => {
+  const payload = JSON.stringify({ verdict: "ok", summary: "streamed and complete", findings: [], next_steps: ["done"] });
+  const stream = [
+    JSON.stringify({ type: "stream_event", event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "toolu_1", name: "StructuredOutput", input: {} } } }),
+    JSON.stringify({ type: "stream_event", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: payload.slice(0, 20) } } }),
+    JSON.stringify({ type: "stream_event", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: payload.slice(20) } } }),
+    JSON.stringify({ type: "stream_event", event: { type: "content_block_stop", index: 1 } })
+  ].join("\n");
+  const fake = withFakeClaudeExecutable(`cat <<'EOF'\n${stream}\nEOF\nsleep 2`);
+
+  try {
+    const startedAt = Date.now();
+    const result = await runClaudeStructuredReview(
+      ROOT,
+      {
+        targetLabel: "working tree diff",
+        focusText: "",
+        contextText: "diff --git a/app.js b/app.js",
+        model: "claude-opus-4-7",
+        effort: "high",
+        betas: [],
+        agentic: true,
+        permissionMode: "default",
+        timeoutMs: 1500,
+        authStatus: { loggedIn: true, raw: { authMethod: "api-key" } }
+      },
+      "review",
+      REVIEW_SCHEMA_PATH
+    );
+
+    assert.equal(result.parsed.summary, "streamed and complete");
+    assert.equal(result.invocationMeta.earlyStructuredOutput, true);
+    assert.ok(Date.now() - startedAt < 900, "review should not wait for the sleeping Claude process after structured output is complete");
+  } finally {
+    fake.restore();
+  }
+});
+
+test("runClaudeStructuredReview normalizes plan permission mode to default for structured read-only reviews", async () => {
+  const fake = withFakeClaude(JSON.stringify({
+    type: "result",
+    structured_output: { verdict: "ok", summary: "plan suppressed", findings: [], next_steps: ["done"] }
+  }));
+
+  try {
+    const result = await runClaudeStructuredReview(
+      ROOT,
+      {
+        targetLabel: "working tree diff",
+        focusText: "",
+        contextText: "diff --git a/app.js b/app.js",
+        model: "claude-opus-4-7",
+        effort: "high",
+        betas: [],
+        agentic: true,
+        permissionMode: "plan",
+        authStatus: { loggedIn: true, raw: { authMethod: "api-key" } }
+      },
+      "review",
+      REVIEW_SCHEMA_PATH
+    );
+    const args = readArgs(fake.argsFile);
+    const permissionIndex = args.indexOf("--permission-mode");
+
+    assert.notEqual(permissionIndex, -1);
+    assert.equal(args[permissionIndex + 1], "default");
+    assert.equal(result.invocationMeta.requestedPermissionMode, "plan");
+    assert.equal(result.invocationMeta.effectivePermissionMode, "default");
+    assert.equal(result.invocationMeta.suppressedPlanMode, true);
   } finally {
     fake.restore();
   }

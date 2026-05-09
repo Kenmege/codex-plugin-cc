@@ -71,3 +71,22 @@ test("runCommandCapture exposes timeout diagnostics and lifecycle callbacks", as
   assert.ok(events.some(([name]) => name === "timeout"));
   assert.equal(events.at(-1)[0], "close");
 });
+
+test("runCommandCapture can stop early when the expected output is complete", async () => {
+  const startedAt = Date.now();
+  const result = await runCommandCapture(
+    "sh",
+    ["-c", "printf 'ready'; sleep 2"],
+    {
+      timeout: 1000,
+      terminationGraceMs: 50,
+      shouldStopEarly: ({ stdout }) => stdout.includes("ready"),
+      earlyStopReason: "structured_output_complete"
+    }
+  );
+
+  assert.equal(result.error, null);
+  assert.equal(result.reason, "structured_output_complete");
+  assert.match(result.stdout, /ready/);
+  assert.ok(Date.now() - startedAt < 800, "early stop should avoid waiting for process timeout");
+});

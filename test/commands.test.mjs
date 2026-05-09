@@ -489,10 +489,10 @@ test("agentic no-output probe falls back to Claude-only markdown review", () => 
     "esac"
   ]);
 
-  const run = spawnSync(process.execPath, [helper, "elite-review", "--cwd", cwd, "--timeout-ms", "120", "validate fallback"], {
+  const run = spawnSync(process.execPath, [helper, "elite-review", "--cwd", cwd, "--timeout-ms", "500", "validate fallback"], {
     cwd,
     encoding: "utf8",
-    env: fake.env
+    env: { ...fake.env, CODEX_CLAUDE_AGENTIC_NO_OUTPUT_TIMEOUT_MS: "20" }
   });
 
   assert.equal(run.status, 0, run.stderr);
@@ -501,4 +501,36 @@ test("agentic no-output probe falls back to Claude-only markdown review", () => 
   const job = onlyJob(cwd);
   assert.equal(job.status, "completed");
   assert.equal(job.invocationMeta.fallbackUsed, true);
+});
+
+test("agentic structured chatter probe falls back before the overall timeout", () => {
+  const cwd = makeDirtyRepo();
+  const fake = withFakeClaudeScript([
+    "if [ \"$1\" = \"--help\" ]; then echo 'Usage: claude'; exit 0; fi",
+    "if [ \"$1\" = \"auth\" ]; then echo '{\"loggedIn\":true,\"authMethod\":\"api-key\"}'; exit 0; fi",
+    "structured=0",
+    "for arg in \"$@\"; do if [ \"$arg\" = \"--output-format\" ]; then structured=1; fi; done",
+    "if [ \"$structured\" = \"1\" ]; then echo 'thinking without structured output'; sleep 2; else echo 'VERDICT: recovered after chatter'; echo 'BLOCKERS: none in fallback path'; fi"
+  ]);
+
+  const startedAt = Date.now();
+  const run = spawnSync(process.execPath, [helper, "elite-review", "--cwd", cwd, "--timeout-ms", "2500", "validate chatter fallback"], {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...fake.env,
+      CODEX_CLAUDE_AGENTIC_STRUCTURED_PROBE_TIMEOUT_MS: "30",
+      CODEX_CLAUDE_AGENTIC_NO_OUTPUT_TIMEOUT_MS: "400"
+    }
+  });
+
+  assert.equal(run.status, 0, run.stderr);
+  assert.ok(Date.now() - startedAt < 1800, "structured chatter should not consume the full overall timeout");
+  assert.match(run.stdout, /Fallback Markdown Review/);
+  assert.match(run.stdout, /recovered after chatter/);
+  const job = onlyJob(cwd);
+  assert.equal(job.status, "completed");
+  assert.equal(job.invocationMeta.fallbackUsed, true);
+  assert.equal(job.invocationMeta.structuredFailure.structuredProbeTimeoutMs, 30);
+  assert.equal(job.invocationMeta.structuredFailure.overallTimeoutMs, 2500);
 });

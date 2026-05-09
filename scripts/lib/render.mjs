@@ -72,7 +72,13 @@ function formatDiagnosticBlock(diagnostics = {}) {
   if (!diagnostics || typeof diagnostics !== "object") return lines;
   if (diagnostics.cwd) lines.push(`  CWD: ${diagnostics.cwd}`);
   if (diagnostics.model || diagnostics.effort) lines.push(`  Model: ${diagnostics.model ?? "unknown"} / ${diagnostics.effort ?? "unknown"}`);
-  if (diagnostics.permissionMode) lines.push(`  Permission mode: ${diagnostics.permissionMode}`);
+  if (diagnostics.permissionMode) {
+    const effective = diagnostics.effectivePermissionMode && diagnostics.effectivePermissionMode !== diagnostics.permissionMode
+      ? ` (effective: ${diagnostics.effectivePermissionMode})`
+      : "";
+    const suppressed = diagnostics.suppressedPlanMode ? " — plan mode suppressed for structured read-only review" : "";
+    lines.push(`  Permission mode: ${diagnostics.permissionMode}${effective}${suppressed}`);
+  }
   if (diagnostics.contextBytes != null) lines.push(`  Context bytes: ${diagnostics.contextBytes}`);
   if (diagnostics.promptPath) lines.push(`  Prompt: ${diagnostics.promptPath}`);
   if (diagnostics.command) lines.push(`  Command: ${diagnostics.command}`);
@@ -80,6 +86,10 @@ function formatDiagnosticBlock(diagnostics = {}) {
   if (diagnostics.currentPhase) lines.push(`  Phase: ${diagnostics.currentPhase}`);
   if (diagnostics.exitCode != null || diagnostics.signal != null) lines.push(`  Exit: code=${diagnostics.exitCode ?? "null"} signal=${diagnostics.signal ?? "null"}`);
   if (diagnostics.timeoutMs != null) lines.push(`  Timeout: ${diagnostics.timeoutMs}ms`);
+  if (diagnostics.structuredProbeTimeoutMs != null) lines.push(`  Structured probe timeout: ${diagnostics.structuredProbeTimeoutMs}ms`);
+  if (diagnostics.fallbackTimeoutMs != null) lines.push(`  Fallback timeout: ${diagnostics.fallbackTimeoutMs}ms`);
+  if (diagnostics.fallbackNoOutputTimeoutMs != null) lines.push(`  Fallback no-output timeout: ${diagnostics.fallbackNoOutputTimeoutMs}ms`);
+  if (diagnostics.overallTimeoutMs != null) lines.push(`  Overall timeout: ${diagnostics.overallTimeoutMs}ms`);
   if (diagnostics.noOutputTimeoutMs != null) lines.push(`  No-output probe timeout: ${diagnostics.noOutputTimeoutMs}ms`);
   if (diagnostics.assistantTextTail) {
     lines.push("  Claude text tail:");

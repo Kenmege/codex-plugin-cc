@@ -89,6 +89,7 @@ export function runCommandCapture(command, args, options = {}) {
     let noOutputTimedOut = false;
     let interrupted = false;
     let bufferExceeded = false;
+    let earlyCompleted = false;
     let terminationStarted = false;
     let killEscalated = false;
     let killTimer = null;
@@ -117,6 +118,12 @@ export function runCommandCapture(command, args, options = {}) {
       if (stopReason === "no_output_timeout") noOutputTimedOut = true;
       if (stopReason === "interrupt") interrupted = true;
       if (stopReason === "buffer") bufferExceeded = true;
+      if (stopReason === (options.earlyStopReason ?? "early_complete")) earlyCompleted = true;
+      if (earlyCompleted) {
+        if (timeout) clearTimeout(timeout);
+        if (noOutputTimeout) clearTimeout(noOutputTimeout);
+        safeCallback(options.onEarlyStop, { pid: child.pid, reason: stopReason });
+      }
       if (stopReason === "timeout") {
         safeCallback(options.onTimeout, { pid: child.pid, timeoutMs: options.timeout });
       }
@@ -126,6 +133,34 @@ export function runCommandCapture(command, args, options = {}) {
       if (terminationStarted) return;
       terminationStarted = true;
       terminateChildProcessTree(child);
+      if (earlyCompleted) {
+        killEscalated = killChildProcessTree(child) || killEscalated;
+        const stdout = Buffer.concat(stdoutChunks).toString(options.encoding ?? "utf8");
+        const stderr = Buffer.concat(stderrChunks).toString(options.encoding ?? "utf8");
+        const payload = {
+          pid: child.pid,
+          command,
+          args,
+          cwd: options.cwd,
+          status: null,
+          signal: null,
+          stdout,
+          stderr,
+          stdoutTail: stdoutTail.toString(options.encoding ?? "utf8"),
+          stderrTail: stderrTail.toString(options.encoding ?? "utf8"),
+          stdoutBytes,
+          stderrBytes,
+          reason,
+          timeoutMs: options.timeout ?? null,
+          noOutputTimeoutMs: options.noOutputTimeout ?? null,
+          killEscalated,
+          completedEarly: true,
+          error: null
+        };
+        safeCallback(options.onClose, payload);
+        finish(payload);
+        return;
+      }
       const terminationGraceMs = options.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS;
       killTimer = setTimeout(() => {
         killEscalated = killChildProcessTree(child);
@@ -152,12 +187,31 @@ export function runCommandCapture(command, args, options = {}) {
       if (noOutputTimeout) clearTimeout(noOutputTimeout);
       stdoutBytes += chunk.length;
       stdoutTail = appendTail(stdoutTail, chunk, tailBytes);
-      safeCallback(options.onStdout, { pid: child.pid, chunk, text: chunk.toString(options.encoding ?? "utf8"), stdoutBytes });
+      stdoutChunks.push(chunk);
+      const stdout = Buffer.concat(stdoutChunks).toString(options.encoding ?? "utf8");
+      const stderr = Buffer.concat(stderrChunks).toString(options.encoding ?? "utf8");
+      safeCallback(options.onStdout, { pid: child.pid, chunk, text: chunk.toString(options.encoding ?? "utf8"), stdoutBytes, stdout, stderr });
       if (stdoutBytes > maxBuffer) {
         stopChild("buffer");
         return;
       }
-      stdoutChunks.push(chunk);
+      if (typeof options.shouldStopEarly === "function") {
+        let shouldStop = false;
+        try {
+          shouldStop = Boolean(options.shouldStopEarly({
+            pid: child.pid,
+            stdout,
+            stderr,
+            stdoutTail: stdoutTail.toString(options.encoding ?? "utf8"),
+            stderrTail: stderrTail.toString(options.encoding ?? "utf8"),
+            stdoutBytes,
+            stderrBytes
+          }));
+        } catch {}
+        if (shouldStop) {
+          stopChild(options.earlyStopReason ?? "early_complete");
+        }
+      }
     });
 
     child.stderr.on("data", (chunk) => {
@@ -174,6 +228,7 @@ export function runCommandCapture(command, args, options = {}) {
     });
 
     child.on("error", (error) => {
+      if (finished) return;
       finish({
         pid: child.pid,
         command,
@@ -191,10 +246,13 @@ export function runCommandCapture(command, args, options = {}) {
     });
 
     child.on("close", (status, signal) => {
+      if (finished) return;
       const stdout = Buffer.concat(stdoutChunks).toString(options.encoding ?? "utf8");
       const stderr = Buffer.concat(stderrChunks).toString(options.encoding ?? "utf8");
-      const error = timedOut
-        ? makeProcessError(
+      const error = earlyCompleted
+        ? null
+        : timedOut
+          ? makeProcessError(
             killEscalated
               ? `timed out after ${options.timeout}ms; escalated to SIGKILL after grace period`
               : `timed out after ${options.timeout}ms`,
@@ -236,6 +294,9 @@ export async function runCommandCaptureChecked(command, args, options = {}) {
   const result = await runCommandCapture(command, args, options);
   if (result.error) {
     throw result.error;
+  }
+  if (result.completedEarly) {
+    return result;
   }
   if (result.status !== 0) {
     throw new Error(formatCommandFailure(result));

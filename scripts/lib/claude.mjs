@@ -18,6 +18,8 @@ export const DEFAULT_AGENTIC_BUDGET_USD = 8;
 export const DEFAULT_DEEP_REVIEW_BUDGET_USD = 25;
 export const DEFAULT_AGENTIC_NO_OUTPUT_TIMEOUT_MS = 60 * 1000;
 export const CLAUDE_AGENTIC_NO_OUTPUT_TIMEOUT_ENV = "CODEX_CLAUDE_AGENTIC_NO_OUTPUT_TIMEOUT_MS";
+export const DEFAULT_AGENTIC_STRUCTURED_PROBE_TIMEOUT_MS = 45 * 1000;
+export const CLAUDE_AGENTIC_STRUCTURED_PROBE_TIMEOUT_ENV = "CODEX_CLAUDE_AGENTIC_STRUCTURED_PROBE_TIMEOUT_MS";
 
 export const ALLOWED_PERMISSION_MODES = ["default", "plan"];
 
@@ -261,6 +263,45 @@ function parseClaudeStreamEvents(stdout) {
   return { events, errors };
 }
 
+function extractStreamedStructuredOutput(events) {
+  const blocks = new Map();
+  for (const event of events) {
+    if (event.type !== "stream_event" || !event.event) continue;
+    const inner = event.event;
+    const index = inner.index;
+    if (typeof index !== "number") continue;
+    if (inner.type === "content_block_start") {
+      const block = inner.content_block ?? {};
+      blocks.set(index, {
+        name: block.name ?? null,
+        type: block.type ?? null,
+        input: block.input && typeof block.input === "object" ? block.input : null,
+        json: ""
+      });
+    }
+    if (inner.type === "content_block_delta") {
+      const delta = inner.delta ?? {};
+      if (delta.type !== "input_json_delta" || typeof delta.partial_json !== "string") continue;
+      const existing = blocks.get(index) ?? { name: null, type: null, input: null, json: "" };
+      existing.json += delta.partial_json;
+      blocks.set(index, existing);
+    }
+  }
+
+  const candidates = [...blocks.values()]
+    .filter((block) => block.name === "StructuredOutput" || (!block.name && block.json.trim().startsWith("{")))
+    .reverse();
+  for (const block of candidates) {
+    if (block.input && Object.keys(block.input).length > 0) return block.input;
+    const text = block.json.trim();
+    if (!text) continue;
+    try {
+      return JSON.parse(text);
+    } catch {}
+  }
+  return null;
+}
+
 function extractStructuredOutput(events, errors) {
   const resultEvent = [...events].reverse().find((event) => event.type === "result");
   if (resultEvent?.structured_output) {
@@ -273,6 +314,11 @@ function extractStructuredOutput(events, errors) {
 
   if (toolUseInput) {
     return toolUseInput;
+  }
+
+  const streamedToolInput = extractStreamedStructuredOutput(events);
+  if (streamedToolInput) {
+    return streamedToolInput;
   }
 
   if (errors.length > 0) {
@@ -874,6 +920,12 @@ function resolveAgenticNoOutputTimeoutMs(snapshot) {
   return Math.max(1, Math.min(DEFAULT_AGENTIC_NO_OUTPUT_TIMEOUT_MS, Math.floor(totalTimeout / 4)));
 }
 
+function resolveAgenticStructuredProbeTimeoutMs(snapshot, totalTimeout) {
+  const envOverride = parsePositiveInteger(process.env?.[CLAUDE_AGENTIC_STRUCTURED_PROBE_TIMEOUT_ENV]);
+  const requested = envOverride ?? DEFAULT_AGENTIC_STRUCTURED_PROBE_TIMEOUT_MS;
+  return Math.max(1, Math.min(requested, totalTimeout));
+}
+
 function processDiagnostics(result, commandShape, currentPhase, extra = {}) {
   const stdout = String(result?.stdout ?? "");
   const stdoutTail = String(result?.stdoutTail ?? stdout).slice(-65536);
@@ -941,7 +993,7 @@ function buildPlainClaudeArgs(prompt, snapshot) {
 
 function buildMarkdownFallbackPrompt(snapshot, reviewKind, structuredError) {
   return [
-    `You are performing a Claude-only ${reviewKind} fallback review because the structured agentic path did not emit output before its internal probe timeout.`,
+    `You are performing a Claude-only ${reviewKind} fallback review because the structured agentic path did not produce a complete schema result before its internal probe timeout.`,
     "Do not use or mention GPT. Do not edit files. Return plain markdown only.",
     "Return these sections: VERDICT, BLOCKERS, MISSING PIECES, EXACT CHANGES NEEDED, DIAGNOSTICS QUALITY.",
     `Structured-path failure: ${structuredError?.message ?? "unknown"}`,
@@ -979,11 +1031,11 @@ function markdownToReviewResult(markdown, reviewKind, activity = {}) {
         verified_claims: [
           {
             claim: "Claude-only markdown fallback returned a review.",
-            verification: "The structured agentic process produced no output before the internal probe timeout; fallback used claude -p --model."
+            verification: "The structured agentic process did not produce a complete schema result before the internal probe timeout; fallback used claude -p --model."
           }
         ],
         blind_spots: [
-          "The structured agentic schema path did not produce output before the internal probe timeout, so this fallback may lack schema-grade tool evidence."
+          "The structured agentic schema path did not produce a complete result before the internal probe timeout, so this fallback may lack schema-grade tool evidence."
         ],
         exploration_log: [
           {
@@ -1011,6 +1063,12 @@ function markdownToReviewResult(markdown, reviewKind, activity = {}) {
   };
 }
 
+function effectiveClaudePermissionMode(snapshot, agentic) {
+  if (!agentic) return null;
+  const requested = snapshot.permissionMode ?? "default";
+  return requested === "plan" ? "default" : requested;
+}
+
 export function buildReviewInvocation(snapshot, reviewKind, schemaPath, options = {}) {
   const schema = fs.readFileSync(schemaPath, "utf8");
   const prompt = buildReviewPrompt(snapshot, reviewKind);
@@ -1021,6 +1079,8 @@ export function buildReviewInvocation(snapshot, reviewKind, schemaPath, options 
     ? buildReviewerSystemPrompt(reviewKind, snapshot.systemPromptExtra)
     : null;
   const { allowedTools, disallowedTools } = resolveAgenticToolFences(snapshot, agentic, unrestricted);
+  const requestedPermissionMode = agentic ? snapshot.permissionMode ?? "default" : null;
+  const effectivePermissionMode = effectiveClaudePermissionMode(snapshot, agentic);
 
   const args = buildClaudeCommandArgs(prompt, {
     model: snapshot.model,
@@ -1031,7 +1091,7 @@ export function buildReviewInvocation(snapshot, reviewKind, schemaPath, options 
     tools: agentic && !unrestricted ? AGENTIC_TOOLS : null,
     allowedTools,
     disallowedTools,
-    permissionMode: agentic ? snapshot.permissionMode ?? "default" : null,
+    permissionMode: effectivePermissionMode,
     appendSystemPrompt,
     mcpConfigs: snapshot.mcpConfigs ?? [],
     addDirs: snapshot.addDirs ?? [],
@@ -1045,7 +1105,10 @@ export function buildReviewInvocation(snapshot, reviewKind, schemaPath, options 
     args,
     prompt,
     suppressedBudget: subscriptionAuth && Boolean(parsePositiveNumber(snapshot.maxBudgetUsd)),
-    suppressedBetas: false
+    suppressedBetas: false,
+    requestedPermissionMode,
+    effectivePermissionMode,
+    suppressedPlanMode: requestedPermissionMode === "plan" && effectivePermissionMode === "default"
   };
 }
 
@@ -1063,15 +1126,22 @@ export async function runClaudeStructuredReview(cwd, snapshot, reviewKind, schem
     fs.writeFileSync(promptPath, invocation.prompt, { encoding: "utf8", mode: 0o600 });
   }
 
+  const noOutputTimeout = snapshot.agentic ? resolveAgenticNoOutputTimeoutMs(snapshot) : null;
+  const structuredProbeTimeoutMs = snapshot.agentic ? resolveAgenticStructuredProbeTimeoutMs(snapshot, timeoutMs) : timeoutMs;
+
   hooks.onInvocation?.({
     cwd,
     model: snapshot.model,
     effort: snapshot.effort,
     permissionMode: snapshot.permissionMode ?? null,
+    effectivePermissionMode: invocation.effectivePermissionMode,
+    suppressedPlanMode: invocation.suppressedPlanMode,
     contextBytes: snapshot.inputBytes ?? Buffer.byteLength(snapshot.contextText ?? "", "utf8"),
     promptPath,
     command: commandShape,
     timeoutMs,
+    structuredProbeTimeoutMs,
+    noOutputTimeoutMs: noOutputTimeout,
     outputMaxBytes,
     currentPhase: "claude_structured_invocation_built"
   });
@@ -1079,12 +1149,13 @@ export async function runClaudeStructuredReview(cwd, snapshot, reviewKind, schem
   let sawStdout = false;
   let sawStderr = false;
   let currentPhase = "claude_structured_running";
-  const noOutputTimeout = snapshot.agentic ? resolveAgenticNoOutputTimeoutMs(snapshot) : null;
+  let earlyStructuredOutput = null;
 
   const runStructured = () => runCommandCapture("claude", invocation.args, {
     cwd,
     maxBuffer: outputMaxBytes,
-    timeout: timeoutMs,
+    timeout: structuredProbeTimeoutMs,
+    terminationGraceMs: structuredProbeTimeoutMs < timeoutMs ? 50 : undefined,
     noOutputTimeout,
     onSpawn: (meta) => hooks.onSpawn?.({ ...meta, command: commandShape, phase: currentPhase }),
     onStdout: (meta) => {
@@ -1101,8 +1172,21 @@ export async function runClaudeStructuredReview(cwd, snapshot, reviewKind, schem
       }
       hooks.onDiagnosticUpdate?.({ stderrTail: meta.text, currentPhase });
     },
-    onTimeout: (meta) => hooks.onPhase?.("claude_timeout", meta),
+    onTimeout: (meta) => {
+      currentPhase = structuredProbeTimeoutMs < timeoutMs ? "claude_structured_probe_timeout" : "claude_timeout";
+      hooks.onPhase?.(currentPhase, { ...meta, timeoutMs: structuredProbeTimeoutMs, overallTimeoutMs: timeoutMs });
+    },
     onNoOutputTimeout: (meta) => hooks.onPhase?.("claude_no_output_timeout", meta),
+    onEarlyStop: (meta) => hooks.onPhase?.("claude_structured_output_complete", meta),
+    shouldStopEarly: ({ stdout }) => {
+      try {
+        earlyStructuredOutput = parseClaudeValidatedReviewOutput(stdout, reviewKind);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    earlyStopReason: "structured_output_complete",
     onClose: (meta) => hooks.onExit?.({ ...meta, command: commandShape, phase: currentPhase })
   });
 
@@ -1112,22 +1196,33 @@ export async function runClaudeStructuredReview(cwd, snapshot, reviewKind, schem
     model: snapshot.model,
     effort: snapshot.effort,
     permissionMode: snapshot.permissionMode ?? null,
+    effectivePermissionMode: invocation.effectivePermissionMode,
+    suppressedPlanMode: invocation.suppressedPlanMode,
     contextBytes: snapshot.inputBytes ?? Buffer.byteLength(snapshot.contextText ?? "", "utf8"),
-    promptPath
+    promptPath,
+    structuredProbeTimeoutMs,
+    overallTimeoutMs: timeoutMs
   });
 
-  if (structuredResult.error || structuredResult.status !== 0) {
+  const completedByEarlyStructuredOutput = structuredResult.reason === "structured_output_complete" && !structuredResult.error;
+
+  if ((structuredResult.error || structuredResult.status !== 0) && !completedByEarlyStructuredOutput) {
     const structuredError = createInvocationError(structuredResult, commandShape, currentPhase, structuredDiagnostics);
-    if (snapshot.agentic && structuredResult.error?.code === "ENOOUTPUT") {
-      hooks.onPhase?.("claude_markdown_fallback_started", { reason: structuredError.failureReason });
+    const structuredErrorCode = structuredResult.error?.code;
+    const canFallbackFromStructuredTimeout = ["ETIMEDOUT", "ETIMEDOUT_KILL"].includes(structuredErrorCode) && structuredProbeTimeoutMs < timeoutMs;
+    if (snapshot.agentic && (structuredErrorCode === "ENOOUTPUT" || canFallbackFromStructuredTimeout)) {
+      hooks.onPhase?.("claude_markdown_fallback_started", { reason: structuredError.failureReason, structuredProbeTimeoutMs });
       const fallbackPrompt = buildMarkdownFallbackPrompt(snapshot, reviewKind, structuredError);
       const fallbackArgs = buildPlainClaudeArgs(fallbackPrompt, snapshot);
       const fallbackCommandShape = redactClaudeCommandShape(fallbackArgs);
       const fallbackStartedAt = Date.now();
+      const fallbackRemainingTimeoutMs = Math.max(1000, timeoutMs - Math.min(timeoutMs, structuredResult.timeoutMs ?? structuredProbeTimeoutMs));
+      const fallbackNoOutputTimeoutMs = Math.max(1000, Math.min(30_000, Math.floor(fallbackRemainingTimeoutMs / 3)));
       const fallbackResult = await runCommandCapture("claude", fallbackArgs, {
         cwd,
         maxBuffer: outputMaxBytes,
-        timeout: Math.max(1000, timeoutMs - (structuredResult.noOutputTimeoutMs ?? 0)),
+        timeout: fallbackRemainingTimeoutMs,
+        noOutputTimeout: fallbackNoOutputTimeoutMs,
         onSpawn: (meta) => hooks.onSpawn?.({ ...meta, command: fallbackCommandShape, phase: "claude_markdown_fallback_running" }),
         onStdout: (meta) => hooks.onDiagnosticUpdate?.({ fallbackStdoutTail: meta.text, currentPhase: "claude_markdown_fallback_running" }),
         onStderr: (meta) => hooks.onDiagnosticUpdate?.({ fallbackStderrTail: meta.text, currentPhase: "claude_markdown_fallback_running" }),
@@ -1138,8 +1233,14 @@ export async function runClaudeStructuredReview(cwd, snapshot, reviewKind, schem
         model: snapshot.model,
         effort: snapshot.effort,
         permissionMode: snapshot.permissionMode ?? null,
+        effectivePermissionMode: invocation.effectivePermissionMode,
+        suppressedPlanMode: invocation.suppressedPlanMode,
         contextBytes: snapshot.inputBytes ?? Buffer.byteLength(snapshot.contextText ?? "", "utf8"),
         promptPath,
+        structuredProbeTimeoutMs,
+        fallbackTimeoutMs: fallbackRemainingTimeoutMs,
+        fallbackNoOutputTimeoutMs,
+        overallTimeoutMs: timeoutMs,
         structuredFailure: structuredDiagnostics
       });
       if (fallbackResult.error || fallbackResult.status !== 0 || !String(fallbackResult.stdout ?? "").trim()) {
@@ -1158,7 +1259,13 @@ export async function runClaudeStructuredReview(cwd, snapshot, reviewKind, schem
           subscriptionAuth,
           suppressedBudget: invocation.suppressedBudget,
           suppressedBetas: invocation.suppressedBetas,
+          requestedPermissionMode: invocation.requestedPermissionMode,
+          effectivePermissionMode: invocation.effectivePermissionMode,
+          suppressedPlanMode: invocation.suppressedPlanMode,
           timeoutMs,
+          structuredProbeTimeoutMs,
+          fallbackTimeoutMs: fallbackRemainingTimeoutMs,
+          fallbackNoOutputTimeoutMs,
           outputMaxBytes,
           promptPath,
           command: fallbackCommandShape,
@@ -1173,7 +1280,7 @@ export async function runClaudeStructuredReview(cwd, snapshot, reviewKind, schem
 
   hooks.onPhase?.("parser_started", { bytes: Buffer.byteLength(structuredResult.stdout ?? "", "utf8") });
   try {
-    const structured = parseClaudeValidatedReviewOutput(structuredResult.stdout, reviewKind);
+    const structured = earlyStructuredOutput ?? parseClaudeValidatedReviewOutput(structuredResult.stdout, reviewKind);
     hooks.onPhase?.("parser_completed", { findings: structured.parsed.findings?.length ?? 0 });
     return {
       stdout: String(structuredResult.stdout ?? ""),
@@ -1183,11 +1290,16 @@ export async function runClaudeStructuredReview(cwd, snapshot, reviewKind, schem
         subscriptionAuth,
         suppressedBudget: invocation.suppressedBudget,
         suppressedBetas: invocation.suppressedBetas,
+        requestedPermissionMode: invocation.requestedPermissionMode,
+        effectivePermissionMode: invocation.effectivePermissionMode,
+        suppressedPlanMode: invocation.suppressedPlanMode,
         timeoutMs,
+        structuredProbeTimeoutMs,
         outputMaxBytes,
         promptPath,
         command: commandShape,
-        fallbackUsed: false
+        fallbackUsed: false,
+        earlyStructuredOutput: completedByEarlyStructuredOutput
       }
     };
   } catch (error) {

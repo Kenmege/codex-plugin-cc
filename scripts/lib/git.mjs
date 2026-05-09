@@ -5,15 +5,16 @@ import { formatCommandFailure, runCommand, runCommandChecked } from "./process.m
 
 const DEFAULT_OPUS_INLINE_BYTES = 250_000;
 const DEFAULT_LONG_CONTEXT_BYTES = 800_000;
+const DEFAULT_GIT_MAX_BUFFER = 128 * 1024 * 1024;
 const MAX_UNTRACKED_BYTES = 24 * 1024;
 const REVIEW_PATHSPEC = ["--", ".", ":(exclude).claude-review/**"];
 
 function git(cwd, args, options = {}) {
-  return runCommand("git", args, { cwd, ...options });
+  return runCommand("git", args, { maxBuffer: DEFAULT_GIT_MAX_BUFFER, cwd, ...options });
 }
 
 function gitChecked(cwd, args, options = {}) {
-  return runCommandChecked("git", args, { cwd, ...options });
+  return runCommandChecked("git", args, { maxBuffer: DEFAULT_GIT_MAX_BUFFER, cwd, ...options });
 }
 
 function unique(values) {
@@ -125,10 +126,10 @@ function collectWorkingTreeContext(cwd) {
     gitChecked(cwd, ["status", "--short", "--untracked-files=all", ...REVIEW_PATHSPEC]).stdout
   ).trim();
   const stagedDiff = String(
-    gitChecked(cwd, ["diff", "--cached", "--binary", "--no-ext-diff", "--submodule=diff", ...REVIEW_PATHSPEC]).stdout
+    gitChecked(cwd, ["diff", "--cached", "--no-ext-diff", "--submodule=diff", ...REVIEW_PATHSPEC]).stdout
   );
   const unstagedDiff = String(
-    gitChecked(cwd, ["diff", "--binary", "--no-ext-diff", "--submodule=diff", ...REVIEW_PATHSPEC]).stdout
+    gitChecked(cwd, ["diff", "--no-ext-diff", "--submodule=diff", ...REVIEW_PATHSPEC]).stdout
   );
   const untrackedFiles = state.untracked.map((file) => readUntrackedFile(cwd, file)).join("\n\n");
   const changedFiles = unique([...state.staged, ...state.unstaged, ...state.untracked]);
@@ -164,7 +165,7 @@ function collectBranchContext(cwd, baseRef) {
   }
 
   const diff = String(
-    gitChecked(cwd, ["diff", "--binary", "--no-ext-diff", "--submodule=diff", `${baseRef}...HEAD`]).stdout
+    gitChecked(cwd, ["diff", "--no-ext-diff", "--submodule=diff", `${baseRef}...HEAD`]).stdout
   );
   const commits = String(gitChecked(cwd, ["log", "--oneline", `${baseRef}..HEAD`]).stdout).trim();
 
