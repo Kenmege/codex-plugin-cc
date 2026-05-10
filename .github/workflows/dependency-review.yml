@@ -1,8 +1,10 @@
 name: Dependency Review
 
 # Blocks pull requests that introduce npm dependencies (direct or transitive) with
-# known vulnerabilities at moderate severity or above, and surfaces a summary
-# comment so reviewers can see exactly what changed in the dependency closure.
+# known vulnerabilities at moderate severity or above, or with denied licenses.
+# When the gate fails, the action posts a summary comment so reviewers can see
+# exactly what changed in the dependency closure (`comment-summary-in-pr:
+# on-failure` — successful runs intentionally stay quiet to avoid per-PR noise).
 # Runs only on pull_request because GitHub's dependency-review API is scoped to
 # diff head vs. base; weekly Dependabot + Scorecard cover the at-rest signal.
 

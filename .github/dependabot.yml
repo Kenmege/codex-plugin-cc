@@ -1,12 +1,18 @@
 # Dependabot config for Kenmege/codex-plugin-cc.
 #
 # Scope: keep direct + transitive npm deps and pinned-by-SHA GitHub Actions current.
-# Security advisories are emitted by Dependabot regardless of schedule and bypass the
-# group settings below, so a weekly cadence does not delay vulnerability fixes.
+# Security advisories are emitted by Dependabot independent of the weekly schedule.
+# No `applies-to: security-updates` group is configured (see Codex review on PR #7),
+# so each advisory generates its own PR — a weekly version-update cadence does not
+# delay vulnerability fixes.
 #
-# Reviewer expectations: every Dependabot PR runs through the same Pull Request CI
-# matrix, CodeQL, OpenSSF Scorecard signal, and the four-reviewer setup as a human
-# PR. Maintainer signs off the merge; auto-merge is intentionally not configured.
+# Reviewer expectations: every Dependabot PR runs through Pull Request CI (Node
+# 18.18/20/22), CodeQL (`javascript-typescript` + `actions` languages), Dependency
+# Review, and the four-reviewer setup as a human PR. The OpenSSF Scorecard
+# workflow is NOT a per-PR gate — it runs weekly and on push to `main` only — but
+# the published score on scorecard.dev informs maintainer judgment when reviewing
+# Dependabot bumps. Maintainer signs off the merge; auto-merge is intentionally
+# not configured.
 
 version: 2
 updates:
