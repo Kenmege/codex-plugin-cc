@@ -418,9 +418,90 @@ function parseClaudeValidatedReviewOutput(stdout, reviewKind) {
   const { events, errors } = parseClaudeStreamEvents(stdout);
   const parsed = extractStructuredOutput(events, errors);
   validateStructuredReviewOutput(parsed, reviewKind);
+  const activity = summarizeClaudeStreamActivityFromEvents(events, errors);
+  const evidenceVerification = crossCheckEvidenceAgainstStream(parsed, activity);
+  return { parsed, activity, evidenceVerification };
+}
+
+function collectObservedToolNames(activity) {
+  // The Claude Code stream emits tool-use events with names like `Read`,
+  // `Grep`, `WebFetch`, `Task`, or parametrized forms like
+  // `Bash(node scripts/bin/git-safe.mjs:*)`. Evidence citations may use
+  // the parametrized form, the bare-name form, or just the tool family
+  // (`Bash`). Index both the literal name AND the bare-family base so a
+  // citation of either matches an observed call of either.
+  const names = new Set();
+  for (const use of activity?.toolUses ?? []) {
+    const raw = typeof use?.name === "string" ? use.name.trim() : "";
+    if (!raw) continue;
+    names.add(raw);
+    const baseName = raw.split("(")[0].trim();
+    if (baseName && baseName !== raw) names.add(baseName);
+  }
+  return names;
+}
+
+export function crossCheckEvidenceAgainstStream(parsed, activity) {
+  // M2 fix from the original adversarial review of v0.2.x: schema
+  // validation enforces `evidence: [{tool, query, confirmed}]` with
+  // non-empty strings, but the agent can fabricate the `tool` name
+  // entirely — the schema does not (and cannot) check that the cited
+  // tool was actually invoked. This function intersects the declared
+  // `evidence[].tool` set with the observed tool-use stream and
+  // returns per-finding + aggregate verification counts.
+  //
+  // Lenient design: an unmatched citation is annotated, not deleted.
+  // Severity is NOT downgraded automatically; the agent's classification
+  // is preserved and the renderer surfaces a warning instead. This
+  // keeps genuine findings visible even when a citation label is
+  // slightly off (e.g., `Bash(git diff:*)` cited but the actual call
+  // was the wider `Bash(node scripts/bin/git-safe.mjs:*)`).
+  //
+  // Caveat: tools invoked inside Task subagents do not appear in the
+  // parent stream (the parent only sees the `Task` invocation itself).
+  // If a finding cites tools that were used by a subagent, those
+  // citations will be marked unverified. Operators reviewing the
+  // annotation should consult the `taskDispatchCount` and the agent's
+  // `exploration_log` before treating an unverified annotation as a
+  // hard fabrication signal.
+  if (!parsed || !Array.isArray(parsed.findings)) {
+    return { findingCount: 0, findingsWithUnverifiedEvidence: 0, perFinding: [] };
+  }
+  const observed = collectObservedToolNames(activity);
+  const perFinding = parsed.findings.map((finding, index) => {
+    const evidence = Array.isArray(finding?.evidence) ? finding.evidence : [];
+    if (evidence.length === 0) {
+      return { index, total: 0, verified: 0, unverified: 0, unverifiedTools: [] };
+    }
+    const unverifiedTools = [];
+    let verified = 0;
+    for (const ev of evidence) {
+      const cited = typeof ev?.tool === "string" ? ev.tool.trim() : "";
+      if (!cited) {
+        unverifiedTools.push("(unnamed)");
+        continue;
+      }
+      const baseName = cited.split("(")[0].trim();
+      const matches = observed.has(cited) || (baseName && observed.has(baseName));
+      if (matches) {
+        verified += 1;
+      } else {
+        unverifiedTools.push(cited);
+      }
+    }
+    return {
+      index,
+      total: evidence.length,
+      verified,
+      unverified: evidence.length - verified,
+      unverifiedTools
+    };
+  });
+  const findingsWithUnverifiedEvidence = perFinding.filter((entry) => entry.unverified > 0).length;
   return {
-    parsed,
-    activity: summarizeClaudeStreamActivityFromEvents(events, errors)
+    findingCount: parsed.findings.length,
+    findingsWithUnverifiedEvidence,
+    perFinding
   };
 }
 
@@ -1281,11 +1362,15 @@ export async function runClaudeStructuredReview(cwd, snapshot, reviewKind, schem
   hooks.onPhase?.("parser_started", { bytes: Buffer.byteLength(structuredResult.stdout ?? "", "utf8") });
   try {
     const structured = earlyStructuredOutput ?? parseClaudeValidatedReviewOutput(structuredResult.stdout, reviewKind);
-    hooks.onPhase?.("parser_completed", { findings: structured.parsed.findings?.length ?? 0 });
+    hooks.onPhase?.("parser_completed", {
+      findings: structured.parsed.findings?.length ?? 0,
+      findingsWithUnverifiedEvidence: structured.evidenceVerification?.findingsWithUnverifiedEvidence ?? 0
+    });
     return {
       stdout: String(structuredResult.stdout ?? ""),
       parsed: structured.parsed,
       activity: structured.activity,
+      evidenceVerification: structured.evidenceVerification,
       invocationMeta: {
         subscriptionAuth,
         suppressedBudget: invocation.suppressedBudget,

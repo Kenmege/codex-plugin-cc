@@ -13,7 +13,9 @@ high-scrutiny adversarial review of any diff. The reviewer gets read-only
 workspace access through `Read`, `Glob`, `Grep`, Task sub-agents, a
 domain-fenced `WebFetch`, and a narrow git wrapper. It does not get `Edit`,
 `Write`, raw shell, or arbitrary git by default. Every elite-tier finding must
-cite tool-call evidence, and malformed structured output fails closed.
+cite tool-call evidence, the cited tool is cross-checked against the live
+tool-use stream so a fabricated citation surfaces in the rendered output, and
+malformed structured output fails closed.
 
 ## 60-Second Quickstart
 
@@ -361,6 +363,16 @@ Setup accepts `--json` for machine-parseable readiness checks.
 schema (`schemas/agentic-review-output.schema.json`) that **schema-enforces**
 `evidence` as `minItems: 1` per finding, `minLength: 1` on every string
 field. The agent cannot emit empty evidence and pass validation.
+
+After schema validation, every finding's `evidence[].tool` is cross-checked
+against the actual tool-use stream observed in this run via
+`crossCheckEvidenceAgainstStream`. Citations whose tool name does not match
+any observed call are flagged with a `⚠ Evidence cross-check` annotation in
+the rendered output and counted in the aggregate. The check is lenient —
+findings are not deleted or downgraded, since tools invoked inside `Task`
+sub-agent calls do not appear in the parent stream and a citation may
+legitimately reference one of those. The annotation is a "treat as a
+fabrication-or-subagent signal" prompt for the operator, not a hard failure.
 
 ## Workspace State
 

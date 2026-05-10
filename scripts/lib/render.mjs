@@ -290,6 +290,20 @@ function renderRichReviewResult(snapshot, result, job = null) {
           const source = ev.source ? ` [${ev.source}]` : "";
           lines.push(`- ${ev.tool}${source}: ${ev.query} -> ${ev.confirmed}`);
         }
+        const verification = result.evidenceVerification?.perFinding?.[index];
+        if (verification && verification.unverified > 0) {
+          // M2 cross-check signal: schema validation accepted the
+          // citation, but the cited tool was not observed in the live
+          // tool-use stream. Could be a fabricated citation or a
+          // genuine sub-agent (Task) call whose tool uses the parent
+          // stream cannot see — operator judges from the finding body.
+          const tools = verification.unverifiedTools.length
+            ? ` (${verification.unverifiedTools.join(", ")})`
+            : "";
+          lines.push(
+            `⚠ Evidence cross-check: ${verification.verified}/${verification.total} cited tools observed in tool-use stream; ${verification.unverified} unverified${tools}.`
+          );
+        }
       }
       lines.push("");
     });
@@ -331,6 +345,19 @@ function renderRichReviewResult(snapshot, result, job = null) {
   const toolSummary = formatToolUseSummary(result.activity);
   if (!snapshot.quiet && toolSummary.length) {
     lines.push("", ...toolSummary);
+  }
+
+  const verification = result.evidenceVerification;
+  if (!snapshot.quiet && verification && verification.findingCount > 0) {
+    lines.push(
+      "",
+      `Evidence cross-check: ${verification.findingCount - verification.findingsWithUnverifiedEvidence}/${verification.findingCount} findings have all citations observed in the tool-use stream.`
+    );
+    if (verification.findingsWithUnverifiedEvidence > 0) {
+      lines.push(
+        `${verification.findingsWithUnverifiedEvidence} finding(s) cite tools not observed in this run — see ⚠ Evidence cross-check lines above. Treat as a fabrication-or-subagent signal, not a hard failure.`
+      );
+    }
   }
 
   return `${lines.join("\n").trimEnd()}\n`;

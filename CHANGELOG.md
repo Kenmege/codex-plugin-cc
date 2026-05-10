@@ -8,6 +8,21 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
 
 ### Added
 
+- Evidence cross-check (`crossCheckEvidenceAgainstStream`) closes M2 from
+  the original adversarial review of v0.2.x: schema validation enforced
+  `evidence: [{tool, query, confirmed}]` with non-empty strings, but the
+  agent could fabricate the cited tool name entirely — the schema cannot
+  check that the cited tool was actually invoked. The new function
+  intersects each finding's `evidence[].tool` against the observed
+  `toolUses` from the stream-event reducer and exposes per-finding
+  `{verified, unverified, unverifiedTools}` plus an aggregate
+  `findingsWithUnverifiedEvidence` count on the review result. The
+  renderer surfaces a `⚠ Evidence cross-check` annotation on offending
+  findings and a one-line aggregate at the bottom of the report. The
+  check is lenient: findings are not deleted or severity-downgraded
+  (sub-agent `Task` calls do not appear in the parent stream, so an
+  unverified annotation can be a sub-agent signal rather than a
+  fabrication). Operator judgment, not hard failure.
 - Supply-chain quality bundle for the public repo:
   - `.github/dependabot.yml` for weekly grouped npm + GitHub Actions
     version-updates. Security advisories flow individually (no

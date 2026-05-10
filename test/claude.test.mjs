@@ -20,6 +20,7 @@ import {
   buildReviewPrompt,
   buildReviewerSystemPrompt,
   buildWebFetchAllowlist,
+  crossCheckEvidenceAgainstStream,
   getClaudeSetupProbeTimeoutMs,
   isSubscriptionAuth,
   extractClaudeAssistantText,
@@ -1042,6 +1043,122 @@ test("summarizeClaudeStreamActivity exposes parseErrors and a small preview of b
   assert.equal(activity.toolUseCount, 1);
   assert.equal(activity.parseErrorPreviews.length, 2);
   assert.match(activity.parseErrorPreviews[0].preview, /this is not json/);
+});
+
+test("crossCheckEvidenceAgainstStream marks all citations verified when their tools were observed", () => {
+  const parsed = {
+    findings: [
+      {
+        evidence: [
+          { tool: "Read", query: "scripts/lib/state.mjs", confirmed: "found writer race" },
+          { tool: "Grep", query: "updateJob", confirmed: "two callers" }
+        ]
+      }
+    ]
+  };
+  const activity = {
+    toolUses: [
+      { name: "Read", input: {} },
+      { name: "Grep", input: {} },
+      { name: "Glob", input: {} }
+    ]
+  };
+  const verification = crossCheckEvidenceAgainstStream(parsed, activity);
+  assert.equal(verification.findingCount, 1);
+  assert.equal(verification.findingsWithUnverifiedEvidence, 0);
+  assert.equal(verification.perFinding[0].verified, 2);
+  assert.equal(verification.perFinding[0].unverified, 0);
+  assert.deepEqual(verification.perFinding[0].unverifiedTools, []);
+});
+
+test("crossCheckEvidenceAgainstStream flags fabricated tool citations not in the stream", () => {
+  const parsed = {
+    findings: [
+      {
+        evidence: [
+          { tool: "Read", query: "fixtures/manifest.json", confirmed: "found" },
+          { tool: "FabricatedScanner", query: "n/a", confirmed: "made up" }
+        ]
+      }
+    ]
+  };
+  const activity = { toolUses: [{ name: "Read", input: {} }] };
+  const verification = crossCheckEvidenceAgainstStream(parsed, activity);
+  assert.equal(verification.findingsWithUnverifiedEvidence, 1);
+  assert.equal(verification.perFinding[0].verified, 1);
+  assert.equal(verification.perFinding[0].unverified, 1);
+  assert.deepEqual(verification.perFinding[0].unverifiedTools, ["FabricatedScanner"]);
+});
+
+test("crossCheckEvidenceAgainstStream matches Bash family on parametrized observed names", () => {
+  // The agent may cite the parametrized form `Bash(node scripts/bin/git-safe.mjs:*)`
+  // OR the bare family `Bash` — either should match an observed call of either.
+  const parsed = {
+    findings: [
+      {
+        evidence: [
+          { tool: "Bash", query: "git diff", confirmed: "diff seen" },
+          { tool: "Bash(node --check:*)", query: "syntax check", confirmed: "node --check ok" }
+        ]
+      }
+    ]
+  };
+  const activity = {
+    toolUses: [
+      { name: "Bash(node scripts/bin/git-safe.mjs:*)", input: {} },
+      { name: "Bash(node --check:*)", input: {} }
+    ]
+  };
+  const verification = crossCheckEvidenceAgainstStream(parsed, activity);
+  assert.equal(verification.findingsWithUnverifiedEvidence, 0);
+  assert.equal(verification.perFinding[0].verified, 2);
+});
+
+test("crossCheckEvidenceAgainstStream marks every citation unverified when no tools were observed", () => {
+  // The pathological case: the agent emitted structured output without
+  // actually invoking any tools. Every citation is therefore fabricated
+  // and the cross-check should surface the entire finding for review.
+  const parsed = {
+    findings: [
+      {
+        evidence: [
+          { tool: "Read", query: "src/x.js", confirmed: "made up" }
+        ]
+      },
+      {
+        evidence: [
+          { tool: "Grep", query: "TODO", confirmed: "made up" },
+          { tool: "WebFetch", query: "https://example.com", confirmed: "made up" }
+        ]
+      }
+    ]
+  };
+  const activity = { toolUses: [] };
+  const verification = crossCheckEvidenceAgainstStream(parsed, activity);
+  assert.equal(verification.findingCount, 2);
+  assert.equal(verification.findingsWithUnverifiedEvidence, 2);
+  assert.equal(verification.perFinding[0].unverified, 1);
+  assert.equal(verification.perFinding[1].unverified, 2);
+});
+
+test("crossCheckEvidenceAgainstStream returns a zero shape on empty or missing findings", () => {
+  // Defensive shape — basic-tier review output has no `evidence` field
+  // on findings, so the cross-check should return a benign zero-shape
+  // rather than throwing or filtering anything.
+  const empty = crossCheckEvidenceAgainstStream({ findings: [] }, { toolUses: [{ name: "Read" }] });
+  assert.equal(empty.findingCount, 0);
+  assert.equal(empty.findingsWithUnverifiedEvidence, 0);
+  assert.deepEqual(empty.perFinding, []);
+
+  const missingEvidence = crossCheckEvidenceAgainstStream(
+    { findings: [{ severity: "low", title: "no-evidence finding" }] },
+    { toolUses: [{ name: "Read" }] }
+  );
+  assert.equal(missingEvidence.findingsWithUnverifiedEvidence, 0);
+  assert.equal(missingEvidence.perFinding[0].total, 0);
+
+  const nullParsed = crossCheckEvidenceAgainstStream(null, { toolUses: [] });
+  assert.equal(nullParsed.findingCount, 0);
 });
 
 test("agentic mode strict-mcp default ON unless explicitly disabled", async () => {

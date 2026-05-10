@@ -157,6 +157,83 @@ test("renderReviewResult includes agentic evidence, verified claims, and explora
   assert.match(output, /Tool usage:/);
 });
 
+test("renderReviewResult surfaces M2 evidence cross-check warnings and aggregate", () => {
+  const output = renderReviewResult(
+    {
+      reviewKind: "elite-review",
+      reviewLabel: "Elite Review",
+      targetLabel: "working tree diff",
+      model: "claude-opus-4-7",
+      effort: "max",
+      profile: "quality",
+      contextMode: "full"
+    },
+    {
+      parsed: {
+        verdict: "REQUEST_CHANGES",
+        ship_recommendation: "NO_SHIP",
+        executive_summary: "Two findings; one cites an unobserved tool.",
+        systemic_risks: [],
+        findings: [
+          {
+            severity: "high",
+            confidence: 0.9,
+            risk_category: "correctness",
+            title: "Real finding",
+            body: "Backed by Read.",
+            failure_scenario: "Race.",
+            why_vulnerable: "No lock.",
+            impact: "Loss.",
+            exploitability: "Local.",
+            file: "src/a.js",
+            line_start: 10,
+            line_end: 12,
+            recommendation: "Lock.",
+            test_gap: "no test",
+            evidence: [{ tool: "Read", query: "src/a.js", confirmed: "race seen" }]
+          },
+          {
+            severity: "medium",
+            confidence: 0.6,
+            risk_category: "supply-chain",
+            title: "Suspect finding",
+            body: "Cites a tool that was not invoked.",
+            failure_scenario: "Hypothesis only.",
+            why_vulnerable: "Maybe.",
+            impact: "Maybe.",
+            exploitability: "Maybe.",
+            file: "src/b.js",
+            line_start: null,
+            line_end: null,
+            recommendation: "Investigate.",
+            test_gap: "n/a",
+            evidence: [{ tool: "Phantom", query: "x", confirmed: "made up" }]
+          }
+        ],
+        verified_claims: [],
+        blind_spots: [],
+        exploration_log: [],
+        next_steps: []
+      },
+      activity: {
+        toolUseCount: 1,
+        toolUses: [{ name: "Read", input: { file_path: "src/a.js" } }]
+      },
+      evidenceVerification: {
+        findingCount: 2,
+        findingsWithUnverifiedEvidence: 1,
+        perFinding: [
+          { index: 0, total: 1, verified: 1, unverified: 0, unverifiedTools: [] },
+          { index: 1, total: 1, verified: 0, unverified: 1, unverifiedTools: ["Phantom"] }
+        ]
+      }
+    }
+  );
+  assert.match(output, /⚠ Evidence cross-check:.*0\/1 cited tools observed.*1 unverified.*Phantom/);
+  assert.match(output, /Evidence cross-check: 1\/2 findings have all citations observed/);
+  assert.match(output, /1 finding\(s\) cite tools not observed/);
+});
+
 test("renderSetupReport surfaces subscription-auth detection and safe-mode banner", () => {
   const subscriptionOutput = renderSetupReport({
     ready: true,
