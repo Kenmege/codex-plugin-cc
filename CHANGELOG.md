@@ -10,13 +10,15 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
 
 - Supply-chain quality bundle for the public repo:
   - `.github/dependabot.yml` for weekly grouped npm + GitHub Actions
-    updates (security advisories still flow individually and bypass the
-    grouping schedule). `target-branch` is intentionally NOT set:
-    GitHub's Dependabot docs document that an explicit `target-branch`
-    causes security updates to fall back to the default branch and
-    ignore the per-update-config options (groups, labels, commit-
-    message), which silently breaks the security-update routing this
-    config relies on (Codex review on PR #7, 2026-05-10).
+    version-updates. Security advisories flow individually (no
+    `applies-to: security-updates` group is configured); GitHub's
+    Dependabot docs note that a security-update group with no
+    `patterns` matches every advisory, so one incompatible bump
+    could block other security PRs in the same window — the
+    grouping was removed (Codex review on PR #7, 2026-05-10).
+    `target-branch` is intentionally NOT set: when explicit, it
+    causes security updates to fall back to the default branch
+    and ignore per-update-config options (Codex review on PR #7).
   - `.github/workflows/codeql.yml` running CodeQL `security-extended`
     on a matrix of `javascript-typescript` AND `actions` languages on
     every PR, every push to `main`, and weekly. The `actions` language
@@ -36,10 +38,16 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
     contents, actions) explicitly.
   - `.github/workflows/dependency-review.yml` blocking PRs that
     introduce moderate-or-higher CVEs in the npm dependency closure
-    and denying AGPL-* licenses (`AGPL-1.0-only`, `AGPL-1.0-or-later`,
-    `AGPL-3.0-only`, `AGPL-3.0-or-later` — all current SPDX
-    identifiers) at the gate to protect Apache-2.0 downstream
-    consumers.
+    and denying AGPL licenses at the gate to protect Apache-2.0
+    downstream consumers. `fail-on-scopes` is set to
+    `runtime, development, unknown` so the gate covers the entire
+    closure, not just runtime (the action's default is `runtime`
+    only). Deny list includes both the current SPDX identifiers
+    (`AGPL-*-only`, `AGPL-*-or-later`) AND the deprecated bare
+    forms (`AGPL-1.0`, `AGPL-3.0`); SPDX still treats deprecated
+    identifiers as valid, and npm metadata can contain legacy
+    strings — without the bare forms a legacy AGPL dep would slip
+    through (both refinements: Codex review on PR #7).
 - Added CodeQL and OpenSSF Scorecard badges to the README badge row.
 - Added public-launch community files: issue templates, PR template,
   CODEOWNERS, Code of Conduct, and v1.0.2 release notes.

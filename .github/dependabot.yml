@@ -33,18 +33,18 @@ updates:
       prefix: chore(deps)
       prefix-development: chore(deps-dev)
       include: scope
+    # Groups apply ONLY to version-updates. Security-update grouping
+    # was removed (Codex review on PR #7, 2026-05-10): a security
+    # group with no `patterns` narrowing matches every advisory, so
+    # one incompatible bump can block the rest of the security PRs
+    # that landed in the same window — the opposite of the doc-
+    # comment promise that "advisories flow individually."
     groups:
       npm-minor-and-patch:
         applies-to: version-updates
         update-types:
           - minor
           - patch
-      npm-security:
-        applies-to: security-updates
-        update-types:
-          - patch
-          - minor
-          - major
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -67,15 +67,11 @@ updates:
     commit-message:
       prefix: chore(actions)
       include: scope
+    # Security-update group removed for the same reason as in the
+    # npm block above — see the comment there.
     groups:
       actions-minor-and-patch:
         applies-to: version-updates
         update-types:
           - minor
           - patch
-      actions-security:
-        applies-to: security-updates
-        update-types:
-          - patch
-          - minor
-          - major
