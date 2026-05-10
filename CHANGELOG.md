@@ -22,32 +22,50 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
 
 ### Security
 
-- `.github/workflows/claude.yml` hardening pass (PR C, 2026-05-10), surfaced
-  by an external review of the same workflow file when ported to a sister
-  repo:
-  - Removed workflow-level `id-token: write`. No step in this workflow uses
-    GitHub OIDC; granting it broadened the blast radius if claude-code-action
-    or its transitive deps were ever supply-chain compromised.
-  - Added `Bash`, `BashOutput`, and `KillShell` to `--disallowedTools` for
-    both auto-review steps. Closes a prompt-injection-to-secret-exfil vector
-    where a crafted file in an internal-branch PR could instruct Claude to
-    `curl` the runner's `CLAUDE_CODE_OAUTH_TOKEN` out of the environment.
-    The `interactive` job intentionally still permits Bash because it is
-    invoked by an authenticated maintainer.
-  - Added a fork-PR guard to the `interactive` job, matching the guard
-    already in place for `auto-review`. Without it, a fork contributor
-    commenting `@claude` on their own PR would trigger the action against
-    fork-controlled diff content with the OAuth token in scope.
-  - Skip Dependabot PRs in both `auto-review` and `interactive` jobs.
-    Dependabot-triggered workflows do not receive repository Actions
-    secrets by default, so the auth preflight always failed; routing
-    around it cleanly avoids noisy red checks on dep-update PRs.
+- `.github/workflows/claude.yml` hardening pass (PR #8, 2026-05-10),
+  surfaced by an external review of the same workflow file when ported
+  to a sister repo:
+  - Added `Bash`, `BashOutput`, and `KillShell` to `--disallowedTools`
+    for both auto-review steps. Closes a prompt-injection-to-secret-exfil
+    vector where a crafted file in an internal-branch PR could instruct
+    Claude to `curl` the runner's `CLAUDE_CODE_OAUTH_TOKEN` out of the
+    environment. The `interactive` job intentionally still permits Bash
+    because it is invoked by an authenticated maintainer.
+  - Restricted the `interactive` job trigger to OWNER, MEMBER, and
+    COLLABORATOR `author_association` values across all four event
+    types (`issue_comment`, `pull_request_review_comment`,
+    `pull_request_review`, `issues`). The previous fork-PR guard
+    used `github.event.pull_request`, which is null on `issue_comment`
+    events on PR threads, so the guard failed open for the very case
+    it was supposed to defend against (Copilot finding on PR #8). The
+    fork-head check at the env level is retained as defense-in-depth
+    for `pull_request_review*` events where the PR object is in the
+    payload.
+  - Skip Dependabot-authored `@claude` triggers in the `interactive`
+    job (`sender.login != dependabot[bot]`). Maintainer `@claude`
+    invocations on a Dependabot PR are intentionally allowed: a
+    maintainer commenting `@claude` is a deliberate request for
+    review, even when the PR author is Dependabot.
+  - Skip Dependabot PRs in `auto-review`. Dependabot-triggered
+    workflows do not receive repository Actions secrets by default,
+    so the auth preflight always failed; routing around it cleanly
+    avoids noisy red checks on dep-update PRs.
   - Deduplicated the OAuth and API-key prompt blocks via workflow-level
     env vars (`CLAUDE_AUTO_REVIEW_PROMPT`, `CLAUDE_INTERACTIVE_PROMPT`)
     so future prompt edits only need to land in one place.
-  - Added `persist-credentials: false` to all `actions/checkout` steps so
-    the default `GITHUB_TOKEN` is not left on disk inside the runner's
-    `.git/config`.
+  - Added `persist-credentials: false` to all `actions/checkout` steps
+    so the default `GITHUB_TOKEN` is not left on disk inside the
+    runner's `.git/config`.
+  - **Reverted attempted F1**: an earlier commit on this branch
+    removed workflow-level `id-token: write` under the assumption
+    that no step uses OIDC. That was wrong:
+    `anthropics/claude-code-action` itself exchanges an OIDC token
+    for a GitHub installation token at runtime
+    (`src/github/token.ts:138 setupGitHubToken`). Removing the scope
+    causes the action to fail with `Could not fetch an OIDC token. Did
+    you remember to add id-token: write to your workflow permissions?`
+    (verified on PR #8 run 25627012564). The scope is restored with a
+    comment block explaining why it is load-bearing.
 
 ## [1.0.3] — 2026-05-08
 

@@ -12,17 +12,26 @@ on:
   issues:
     types: [opened, assigned]
 
-# NB: id-token: write was removed in PR C (2026-05-10). No step in this
-# workflow uses GitHub OIDC (no cloud-provider federation). Granting it
-# at workflow level lets any action in either job request short-lived
-# cloud credentials scoped to this repo's identity, which broadens the
-# blast radius if claude-code-action or its transitive deps were ever
-# supply-chain compromised. Restore only when a step legitimately calls
-# `actions/configure-aws-credentials` or similar.
+# id-token: write is required by anthropics/claude-code-action itself
+# (not by any user step in this workflow). The action exchanges an OIDC
+# token for a GitHub installation token at runtime — see
+# `src/github/token.ts:138` `setupGitHubToken`. Removing this scope makes
+# the action fail with `Could not fetch an OIDC token. Did you remember
+# to add id-token: write to your workflow permissions?` (verified on
+# Kenmege/codex-plugin-cc PR #8 run 25627012564 on 2026-05-10).
+#
+# An earlier hardening pass on PR #8 attempted to drop this scope under
+# the assumption that "no step uses OIDC, so it can be removed." That
+# was wrong; the action's own internal step uses it. The blast-radius
+# concern raised in the original Claude review of PR #75 on
+# Kenmege/currentness-guardian remains directionally valid (more scopes
+# = more risk), but the action's runtime requirement is load-bearing
+# and the PR #8 attempted removal is reverted here.
 permissions:
   contents: read
   issues: write
   pull-requests: write
+  id-token: write
 
 concurrency:
   group: claude-${{ github.workflow }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
@@ -137,15 +146,38 @@ jobs:
             --disallowedTools Edit,Write,NotebookEdit,Bash,BashOutput,KillShell
 
   interactive:
-    # Trigger gate: only fire on @claude mentions in PR/review/issue
-    # bodies. Skip Dependabot's @-mentions (Dependabot can't get secrets
-    # anyway, but skip cleanly to avoid noisy red checks on dep PRs).
+    # Trigger gate. Two layers:
+    #
+    # 1. @claude must appear in the relevant body field for the event.
+    # 2. The author of that comment/review/issue must be one of OWNER,
+    #    MEMBER, or COLLABORATOR. This prevents an external contributor
+    #    or a stranger on a public issue from triggering an interactive
+    #    Claude run that has Bash permitted and runs in base-repo
+    #    context (where CLAUDE_CODE_OAUTH_TOKEN is available). Fork
+    #    contributors typically have author_association of NONE or
+    #    FIRST_TIME_CONTRIBUTOR; both are blocked here. This is the
+    #    primary defense for the H3 finding flagged on PR #8 by
+    #    Copilot — the previous attempt used `github.event.pull_request`
+    #    which is null on `issue_comment` events and so failed open
+    #    for the exact case it was supposed to defend against.
+    #
+    # Dependabot is also explicitly excluded as a sender (it never
+    # triggers on its own; this guard is only for the unlikely case of
+    # a Dependabot @-mention pattern).
     if: >-
       (
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body || '', '@claude')) ||
-        (github.event_name == 'issues' && (contains(github.event.issue.body || '', '@claude') || contains(github.event.issue.title || '', '@claude')))
+        (github.event_name == 'issue_comment'
+          && contains(github.event.comment.body, '@claude')
+          && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+        (github.event_name == 'pull_request_review_comment'
+          && contains(github.event.comment.body, '@claude')
+          && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+        (github.event_name == 'pull_request_review'
+          && contains(github.event.review.body || '', '@claude')
+          && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
+        (github.event_name == 'issues'
+          && (contains(github.event.issue.body || '', '@claude') || contains(github.event.issue.title || '', '@claude'))
+          && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
       ) &&
       github.event.sender.login != 'dependabot[bot]' &&
       github.event.sender.login != 'dependabot-preview[bot]'
@@ -154,14 +186,14 @@ jobs:
     env:
       HAS_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
       HAS_CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
-      # Fork-PR guard for the interactive path. issue_comment events run
-      # in base-repo context with secrets available even when the PR head
-      # is on a fork, so without this check a fork contributor commenting
-      # `@claude` on their own PR would trigger the action against fork-
-      # controlled diff content with the OAuth token in scope. github.event.
-      # pull_request is null for non-PR-attached events (plain issues), in
-      # which case this evaluates to false (no fork to check, base-repo
-      # context). Closes H3 from the PR #75 currentness-guardian review.
+      # Defense-in-depth fork-head check. Only meaningful for events
+      # where the PR object is in the payload directly (review,
+      # review_comment). For issue_comment events on PR threads,
+      # `github.event.pull_request` is null — those rely on the
+      # author_association gate at the trigger level. github.event.
+      # pull_request being null (non-PR `issues` event) yields false,
+      # which is the correct default (no fork to check, base-repo
+      # context).
       IS_UNTRUSTED_FORK_PR: >-
         ${{
           github.event.pull_request != null &&
