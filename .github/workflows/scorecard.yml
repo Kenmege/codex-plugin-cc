@@ -15,7 +15,16 @@ on:
     - cron: "23 7 * * 1"
   workflow_dispatch:
 
-permissions: read-all
+# Workflow-level permissions are intentionally minimal. The OpenSSF
+# Scorecard canonical example uses `read-all`, but the analysis job
+# below already declares the specific scopes it needs (id-token: write
+# for Sigstore, security-events: write for SARIF, contents/actions:
+# read for repo metadata). Workflow-level scope only acts as the
+# default for jobs that don't explicitly declare their own; keeping
+# it at `contents: read` ensures any future job added without explicit
+# permissions inherits a safe, narrow default rather than `read-all`.
+permissions:
+  contents: read
 
 concurrency:
   group: scorecard-${{ github.workflow }}-${{ github.ref }}
