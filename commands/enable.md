@@ -6,7 +6,7 @@ description: Register the claude-review plugin in the local Codex CLI config.
 
 Register the claude-review plugin in the local Codex CLI config (`~/.codex/config.toml` on macOS/Linux, `%USERPROFILE%\.codex\config.toml` on Windows).
 
-Appends the `[marketplaces.claude-review-private]` source entry and `[plugins."claude-review@claude-review-private"]` enable stanza if they are not already present. Safe to run on an existing config — only missing entries are added; all existing content is left intact. Idempotent.
+Writes the `[marketplaces.claude-review-private]` source entry and `[plugins."claude-review@claude-review-private"]` enable stanza. Safe to re-run: existing config content is preserved; the command also self-heals by refreshing a stale `source =` path, normalising `source_type` to `"local"`, and flipping `enabled = false` back to `true` so a moved checkout or previously disabled install is repaired in place. Idempotent — running again with everything already correct reports "already registered".
 
 ## Preflight
 
