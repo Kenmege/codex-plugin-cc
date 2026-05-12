@@ -687,6 +687,10 @@ function handleEnable(argv) {
   if (!fs.existsSync(pluginJsonPath)) {
     throw new Error(`plugin manifest not found at ${pluginJsonPath} — run 'enable' from the installed plugin directory`);
   }
+  const marketplaceManifestPath = path.join(pluginRoot, ".agents", "plugins", "marketplace.json");
+  if (!fs.existsSync(marketplaceManifestPath)) {
+    throw new Error(`marketplace manifest not found at ${marketplaceManifestPath} — run 'enable' from the installed plugin directory`);
+  }
 
   let existing = "";
   try {
@@ -697,34 +701,57 @@ function handleEnable(argv) {
 
   const marketplaceHeader = `[marketplaces.${CODEX_MARKETPLACE_KEY}]`;
   const pluginHeader = `[plugins."${CODEX_PLUGIN_KEY}"]`;
-  const hasMarketplace = existing.includes(marketplaceHeader);
-  const hasPlugin = existing.includes(pluginHeader);
 
-  // Forward slashes work on all platforms in TOML string values (including Windows).
-  const normalizedRoot = pluginRoot.split(path.sep).join("/");
+  // JSON.stringify produces a valid TOML basic string — quotes and backslashes are properly escaped.
+  const safeSource = JSON.stringify(pluginRoot.split(path.sep).join("/"));
+
+  let updated = existing;
   const toAdd = [];
-  let toAppend = "";
+  const toUpdate = [];
 
-  if (!hasMarketplace) {
-    toAppend += `\n${marketplaceHeader}\nsource_type = "local"\nsource = "${normalizedRoot}"\n`;
+  if (!updated.includes(marketplaceHeader)) {
+    updated += `\n${marketplaceHeader}\nsource_type = "local"\nsource = ${safeSource}\n`;
     toAdd.push(marketplaceHeader);
-  }
-  if (!hasPlugin) {
-    toAppend += `\n${pluginHeader}\nenabled = true\n`;
-    toAdd.push(pluginHeader);
+  } else {
+    // Refresh a stale source= value within this stanza (bounded by the next section header).
+    const hIdx = updated.indexOf(marketplaceHeader);
+    const nextSec = updated.indexOf("\n[", hIdx + marketplaceHeader.length);
+    const stanzaEnd = nextSec === -1 ? updated.length : nextSec;
+    const stanza = updated.slice(hIdx, stanzaEnd);
+    const newStanza = stanza.replace(/\nsource\s*=\s*"[^"]*"/, `\nsource = ${safeSource}`);
+    if (newStanza !== stanza) {
+      updated = updated.slice(0, hIdx) + newStanza + updated.slice(stanzaEnd);
+      toUpdate.push("source");
+    }
   }
 
-  const alreadyEnabled = toAdd.length === 0;
+  if (!updated.includes(pluginHeader)) {
+    updated += `\n${pluginHeader}\nenabled = true\n`;
+    toAdd.push(pluginHeader);
+  } else {
+    // Flip enabled = false → enabled = true within this stanza.
+    const hIdx = updated.indexOf(pluginHeader);
+    const nextSec = updated.indexOf("\n[", hIdx + pluginHeader.length);
+    const stanzaEnd = nextSec === -1 ? updated.length : nextSec;
+    const stanza = updated.slice(hIdx, stanzaEnd);
+    const newStanza = stanza.replace(/\nenabled\s*=\s*false/, "\nenabled = true");
+    if (newStanza !== stanza) {
+      updated = updated.slice(0, hIdx) + newStanza + updated.slice(stanzaEnd);
+      toUpdate.push("enabled");
+    }
+  }
+
+  const alreadyEnabled = toAdd.length === 0 && toUpdate.length === 0;
   const dryRun = options["dry-run"] ?? false;
 
   if (!dryRun && !alreadyEnabled) {
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.appendFileSync(configPath, toAppend, "utf8");
+    fs.writeFileSync(configPath, updated, "utf8");
   }
 
   if (options.json) {
     process.stdout.write(
-      JSON.stringify({ configPath, pluginRoot, alreadyEnabled, dryRun, added: toAdd }, null, 2) + "\n"
+      JSON.stringify({ configPath, pluginRoot, alreadyEnabled, dryRun, added: toAdd, updated: toUpdate }, null, 2) + "\n"
     );
     return;
   }
@@ -732,11 +759,15 @@ function handleEnable(argv) {
   if (alreadyEnabled) {
     process.stdout.write(`Plugin already registered in ${configPath}\n`);
   } else if (dryRun) {
-    process.stdout.write(`[dry-run] Would append to ${configPath}:\n${toAppend}\n`);
+    const parts = [];
+    if (toAdd.length > 0) parts.push(`add ${toAdd.join(", ")}`);
+    if (toUpdate.length > 0) parts.push(`update ${toUpdate.join(", ")}`);
+    process.stdout.write(`[dry-run] Would ${parts.join("; ")} in ${configPath}\n`);
   } else {
+    const changed = [...toAdd, ...toUpdate];
     process.stdout.write(
       `Plugin registered in ${configPath}\n` +
-        `Added: ${toAdd.join(", ")}\n` +
+        `Changed: ${changed.join(", ")}\n` +
         `Restart Codex CLI to activate the plugin.\n`
     );
   }

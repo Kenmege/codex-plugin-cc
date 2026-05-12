@@ -142,7 +142,7 @@ if (!marketplacePlugin) {
   throw new Error(".agents/plugins/marketplace.json must expose the .codex-plugin plugin name.");
 }
 
-if (marketplacePlugin.source?.source !== "local" || marketplacePlugin.source?.path !== ".") {
+if (marketplacePlugin.source?.source !== "local" || marketplacePlugin.source?.path !== "./") {
   throw new Error(".agents/plugins/marketplace.json must install the plugin from the local repo root.");
 }
 

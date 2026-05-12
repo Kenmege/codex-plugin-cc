@@ -296,6 +296,7 @@ test("enable writes marketplace and plugin stanzas to a fresh config", () => {
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Plugin registered/);
+  assert.match(result.stdout, /Changed:/);
   assert.match(result.stdout, /Restart Codex CLI/);
   const written = fs.readFileSync(configPath, "utf8");
   assert.match(written, /\[marketplaces\.claude-review-private\]/);
@@ -371,6 +372,45 @@ test("enable source path uses forward slashes on all platforms", () => {
   spawnSync(process.execPath, [helper, "enable", "--config", configPath], { cwd: root, encoding: "utf8" });
   const written = fs.readFileSync(configPath, "utf8");
   assert.doesNotMatch(written, /source = ".*\\.*"/, "TOML source path must use forward slashes");
+});
+
+test("enable updates a stale marketplace source path", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-stale-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const staleConfig =
+    `[marketplaces.claude-review-private]\nsource_type = "local"\nsource = "/old/stale/path"\n\n` +
+    `[plugins."claude-review@claude-review-private"]\nenabled = true\n`;
+  fs.writeFileSync(configPath, staleConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Changed:/);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.doesNotMatch(written, /\/old\/stale\/path/, "stale source path must be replaced");
+  assert.ok(
+    written.includes(root.split(path.sep).join("/")),
+    "source must reflect current install path"
+  );
+});
+
+test("enable flips enabled = false to true for a disabled plugin", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-reenable-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const disabledConfig =
+    `[marketplaces.claude-review-private]\nsource_type = "local"\nsource = "/some/path"\n\n` +
+    `[plugins."claude-review@claude-review-private"]\nenabled = false\n`;
+  fs.writeFileSync(configPath, disabledConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Changed:/);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.doesNotMatch(written, /enabled = false/);
+  assert.match(written, /enabled = true/);
 });
 
 test("status finalizes running jobs older than timeout as failed with a reason", () => {

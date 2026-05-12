@@ -1,3 +1,7 @@
+---
+description: Register the claude-review plugin in the local Codex CLI config.
+---
+
 # /claude-review:enable
 
 Register the claude-review plugin in the local Codex CLI config (`~/.codex/config.toml` on macOS/Linux, `%USERPROFILE%\.codex\config.toml` on Windows).
