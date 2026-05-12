@@ -288,7 +288,8 @@ test("setup json redacts authenticated account identity", () => {
 });
 
 test("enable writes marketplace and plugin stanzas to a fresh config", () => {
-  const configPath = path.join(os.tmpdir(), `codex-enable-fresh-${Date.now()}.toml`);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-fresh-"));
+  const configPath = path.join(tmpDir, "config.toml");
   const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
     cwd: root,
     encoding: "utf8"
@@ -304,7 +305,8 @@ test("enable writes marketplace and plugin stanzas to a fresh config", () => {
 });
 
 test("enable is idempotent — running twice does not duplicate stanzas", () => {
-  const configPath = path.join(os.tmpdir(), `codex-enable-idempotent-${Date.now()}.toml`);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-idempotent-"));
+  const configPath = path.join(tmpDir, "config.toml");
   spawnSync(process.execPath, [helper, "enable", "--config", configPath], { cwd: root, encoding: "utf8" });
   const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
     cwd: root,
@@ -320,7 +322,8 @@ test("enable is idempotent — running twice does not duplicate stanzas", () => 
 });
 
 test("enable --dry-run reports what would be added without writing the config file", () => {
-  const configPath = path.join(os.tmpdir(), `codex-enable-dryrun-${Date.now()}.toml`);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-dryrun-"));
+  const configPath = path.join(tmpDir, "config.toml");
   const result = spawnSync(process.execPath, [helper, "enable", "--dry-run", "--config", configPath], {
     cwd: root,
     encoding: "utf8"
@@ -332,7 +335,8 @@ test("enable --dry-run reports what would be added without writing the config fi
 });
 
 test("enable --json emits machine-parseable registration result", () => {
-  const configPath = path.join(os.tmpdir(), `codex-enable-json-${Date.now()}.toml`);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-json-"));
+  const configPath = path.join(tmpDir, "config.toml");
   const result = spawnSync(process.execPath, [helper, "enable", "--json", "--config", configPath], {
     cwd: root,
     encoding: "utf8"
@@ -347,7 +351,8 @@ test("enable --json emits machine-parseable registration result", () => {
 });
 
 test("enable preserves existing config content when appending stanzas", () => {
-  const configPath = path.join(os.tmpdir(), `codex-enable-preserve-${Date.now()}.toml`);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-preserve-"));
+  const configPath = path.join(tmpDir, "config.toml");
   const existing = `model = "gpt-5.5"\n\n[agents]\nmax_depth = 2\n`;
   fs.writeFileSync(configPath, existing, "utf8");
   const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
@@ -361,7 +366,8 @@ test("enable preserves existing config content when appending stanzas", () => {
 });
 
 test("enable source path uses forward slashes on all platforms", () => {
-  const configPath = path.join(os.tmpdir(), `codex-enable-slashes-${Date.now()}.toml`);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-slashes-"));
+  const configPath = path.join(tmpDir, "config.toml");
   spawnSync(process.execPath, [helper, "enable", "--config", configPath], { cwd: root, encoding: "utf8" });
   const written = fs.readFileSync(configPath, "utf8");
   assert.doesNotMatch(written, /source = ".*\\.*"/, "TOML source path must use forward slashes");
