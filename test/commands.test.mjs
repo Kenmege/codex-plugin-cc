@@ -413,6 +413,215 @@ test("enable flips enabled = false to true for a disabled plugin", () => {
   assert.match(written, /enabled = true/);
 });
 
+test("enable rejects unknown flags before touching the config", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-unknownflag-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const result = spawnSync(process.execPath, [helper, "enable", "--dryrun", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.notEqual(result.status, 0, "enable must exit non-zero for unknown flags");
+  assert.equal(fs.existsSync(configPath), false, "config must not be written when unknown flag passed");
+});
+
+test("enable rejects --config with no value", () => {
+  const result = spawnSync(process.execPath, [helper, "enable", "--config"], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.notEqual(result.status, 0, "enable must exit non-zero when --config has no value");
+});
+
+test("enable recognises the quoted-key form [marketplaces.\"claude-review-private\"] as already present", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-quotedkey-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const quotedConfig =
+    `[marketplaces."claude-review-private"]\nsource_type = "local"\nsource = "/some/path"\n\n` +
+    `[plugins."claude-review@claude-review-private"]\nenabled = true\n`;
+  fs.writeFileSync(configPath, quotedConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const written = fs.readFileSync(configPath, "utf8");
+  const marketplaceCount = (written.match(/\[marketplaces[.\s"]*claude-review-private/g) ?? []).length;
+  assert.equal(marketplaceCount, 1, "must not append a duplicate marketplace stanza for a quoted-key config");
+});
+
+test("enable ignores commented-out marketplace headers when deciding registration", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-commented-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const commentedConfig = `# [marketplaces.claude-review-private]\n# source_type = "local"\n`;
+  fs.writeFileSync(configPath, commentedConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Plugin registered/);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.match(written, /^\[marketplaces\.claude-review-private\]/m, "real (uncommented) stanza must be written");
+});
+
+test("enable recognises a header with a trailing inline comment", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-trailcomment-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const taggedConfig =
+    `[marketplaces.claude-review-private] # set up by earlier installer\n` +
+    `source_type = "local"\nsource = "/some/path"\n\n` +
+    `[plugins."claude-review@claude-review-private"]\nenabled = true\n`;
+  fs.writeFileSync(configPath, taggedConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const written = fs.readFileSync(configPath, "utf8");
+  const marketplaceCount = (written.match(/\[marketplaces\.claude-review-private\]/g) ?? []).length;
+  assert.equal(marketplaceCount, 1, "must not duplicate stanzas because of an inline comment on the header");
+});
+
+test("enable handles CRLF line endings without duplicating stanzas", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-crlf-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const crlfConfig =
+    `[marketplaces.claude-review-private]\r\nsource_type = "local"\r\nsource = "/some/path"\r\n\r\n` +
+    `[plugins."claude-review@claude-review-private"]\r\nenabled = true\r\n`;
+  fs.writeFileSync(configPath, crlfConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const written = fs.readFileSync(configPath, "utf8");
+  const marketplaceCount = (written.match(/\[marketplaces\.claude-review-private\]/g) ?? []).length;
+  const pluginCount = (written.match(/\[plugins\."claude-review@claude-review-private"\]/g) ?? []).length;
+  assert.equal(marketplaceCount, 1, "CRLF config must not produce a duplicate marketplace stanza");
+  assert.equal(pluginCount, 1, "CRLF config must not produce a duplicate plugin stanza");
+});
+
+test("enable updates single-quoted TOML source strings", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-singlequote-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const singleQuotedConfig =
+    `[marketplaces.claude-review-private]\nsource_type = 'local'\nsource = '/old/stale/path'\n\n` +
+    `[plugins."claude-review@claude-review-private"]\nenabled = true\n`;
+  fs.writeFileSync(configPath, singleQuotedConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Changed:/);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.doesNotMatch(written, /\/old\/stale\/path/, "single-quoted stale source must be replaced");
+});
+
+test("enable refreshes an indented source key", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-indented-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const indentedConfig =
+    `[marketplaces.claude-review-private]\n  source_type = "local"\n  source = "/old/indented/path"\n\n` +
+    `[plugins."claude-review@claude-review-private"]\n  enabled = true\n`;
+  fs.writeFileSync(configPath, indentedConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Changed:/);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.doesNotMatch(written, /\/old\/indented\/path/, "indented stale source must be refreshed");
+});
+
+test("enable inserts missing source key into an existing marketplace stanza", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-nosource-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const incompleteConfig =
+    `[marketplaces.claude-review-private]\nsource_type = "local"\n\n` +
+    `[plugins."claude-review@claude-review-private"]\nenabled = true\n`;
+  fs.writeFileSync(configPath, incompleteConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Changed:/);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.match(written, /\nsource\s*=\s*"/, "source key must be inserted when absent from marketplace stanza");
+});
+
+test("enable normalises a wrong source_type to local", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-srctype-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const wrongTypeConfig =
+    `[marketplaces.claude-review-private]\nsource_type = "git"\nsource = "/some/path"\n\n` +
+    `[plugins."claude-review@claude-review-private"]\nenabled = true\n`;
+  fs.writeFileSync(configPath, wrongTypeConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /source_type/);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.match(written, /source_type = "local"/);
+  assert.doesNotMatch(written, /source_type = "git"/);
+});
+
+test("enable inserts missing source_type when only source is set", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-nosrctype-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const noSourceTypeConfig =
+    `[marketplaces.claude-review-private]\nsource = "/some/path"\n\n` +
+    `[plugins."claude-review@claude-review-private"]\nenabled = true\n`;
+  fs.writeFileSync(configPath, noSourceTypeConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.match(written, /source_type = "local"/, "source_type must be inserted when absent");
+});
+
+test("enable inserts missing enabled key into an existing plugin stanza", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-noenabled-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const noEnabledConfig =
+    `[marketplaces.claude-review-private]\nsource_type = "local"\nsource = "/some/path"\n\n` +
+    `[plugins."claude-review@claude-review-private"]\n# (no enabled key)\n`;
+  fs.writeFileSync(configPath, noEnabledConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Changed:/);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.match(written, /enabled = true/, "enabled key must be inserted when absent");
+});
+
+test("enable bounds stanza correctly when next header is indented", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-indentnext-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const indentedNextConfig =
+    `[marketplaces.claude-review-private]\n` +
+    `source_type = "local"\n` +
+    `  [marketplaces.something-else]\n` +
+    `  source_type = "git"\n`;
+  fs.writeFileSync(configPath, indentedNextConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const written = fs.readFileSync(configPath, "utf8");
+  // The other marketplace's source_type must NOT have been rewritten to "local".
+  assert.match(written, /\[marketplaces\.something-else\][\s\S]*source_type = "git"/);
+});
+
 test("status finalizes running jobs older than timeout as failed with a reason", () => {
   const cwd = makeDirtyRepo();
   const jobId = "review-stale";

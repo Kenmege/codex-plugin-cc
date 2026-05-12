@@ -676,8 +676,71 @@ async function runSnapshot(cwd, jobId, snapshot) {
   }
 }
 
+// Normalize a TOML line for header comparison: strip leading whitespace, drop
+// inline comments, strip trailing whitespace (handles CRLF \r). Returns null for
+// comment-only lines so they cannot mask a real registration.
+function normalizeTomlLine(line) {
+  const left = line.trimStart();
+  if (left.startsWith("#")) return null;
+  return left.replace(/\s*#.*$/, "").trimEnd();
+}
+
+// Returns the byte offset where a non-commented header line equal to bareHeader
+// (or the optional quoted-key variant) begins. Tolerant of indentation, inline
+// comments, and CRLF line endings.
+function findTomlSectionStart(content, bareHeader, quotedHeader) {
+  let pos = 0;
+  for (const line of content.split("\n")) {
+    const normalized = normalizeTomlLine(line);
+    if (normalized !== null && (normalized === bareHeader || (quotedHeader && normalized === quotedHeader))) {
+      return pos;
+    }
+    pos += line.length + 1;
+  }
+  return -1;
+}
+
+// Returns the byte offset of the NEXT TOML table header at or after fromOffset,
+// or -1 if none. Used to bound an existing stanza without missing indented
+// headers that `indexOf("\n[")` would skip.
+function findNextSectionStart(content, fromOffset) {
+  let pos = fromOffset;
+  while (pos < content.length) {
+    const nlIdx = content.indexOf("\n", pos);
+    const lineEnd = nlIdx === -1 ? content.length : nlIdx;
+    const line = content.slice(pos, lineEnd);
+    const normalized = normalizeTomlLine(line);
+    if (normalized !== null && normalized.startsWith("[") && !normalized.startsWith("[[")) {
+      return pos;
+    }
+    if (nlIdx === -1) return -1;
+    pos = nlIdx + 1;
+  }
+  return -1;
+}
+
 function handleEnable(argv) {
-  const { options } = parseCommandInput(argv, { booleanOptions: ["json", "dry-run"], valueOptions: ["config"] });
+  // Pre-scan: detect `--config` passed with no value (parseArgs leaves it as undefined,
+  // which is indistinguishable from `--config` not passed at all).
+  const normalizedArgv = argv.length === 1 && argv[0]?.includes(" ") ? splitRawArgumentString(argv[0]) : argv;
+  for (let i = 0; i < normalizedArgv.length; i += 1) {
+    if (normalizedArgv[i] === "--config") {
+      const next = normalizedArgv[i + 1];
+      if (next === undefined || next.startsWith("--")) {
+        throw new Error("--config requires a non-empty path argument");
+      }
+    }
+  }
+
+  const { options, positionals } = parseCommandInput(argv, { booleanOptions: ["json", "dry-run"], valueOptions: ["config"] });
+
+  if (positionals.length > 0) {
+    throw new Error(`unknown arguments: ${positionals.join(" ")} — use --dry-run (not --dryrun) to preview changes`);
+  }
+  if (options.config !== undefined && (typeof options.config !== "string" || options.config.trim() === "")) {
+    throw new Error("--config requires a non-empty path argument");
+  }
+
   const configPath = options.config
     ? path.resolve(options.config)
     : path.join(os.homedir(), ".codex", "config.toml");
@@ -700,6 +763,7 @@ function handleEnable(argv) {
   }
 
   const marketplaceHeader = `[marketplaces.${CODEX_MARKETPLACE_KEY}]`;
+  const marketplaceHeaderQuoted = `[marketplaces."${CODEX_MARKETPLACE_KEY}"]`;
   const pluginHeader = `[plugins."${CODEX_PLUGIN_KEY}"]`;
 
   // JSON.stringify produces a valid TOML basic string — quotes and backslashes are properly escaped.
@@ -709,35 +773,72 @@ function handleEnable(argv) {
   const toAdd = [];
   const toUpdate = [];
 
-  if (!updated.includes(marketplaceHeader)) {
+  const mIdx = findTomlSectionStart(updated, marketplaceHeader, marketplaceHeaderQuoted);
+  if (mIdx === -1) {
     updated += `\n${marketplaceHeader}\nsource_type = "local"\nsource = ${safeSource}\n`;
     toAdd.push(marketplaceHeader);
   } else {
-    // Refresh a stale source= value within this stanza (bounded by the next section header).
-    const hIdx = updated.indexOf(marketplaceHeader);
-    const nextSec = updated.indexOf("\n[", hIdx + marketplaceHeader.length);
+    const afterHeaderLine = updated.indexOf("\n", mIdx);
+    const scanFrom = afterHeaderLine === -1 ? updated.length : afterHeaderLine + 1;
+    const nextSec = findNextSectionStart(updated, scanFrom);
     const stanzaEnd = nextSec === -1 ? updated.length : nextSec;
-    const stanza = updated.slice(hIdx, stanzaEnd);
-    const newStanza = stanza.replace(/\nsource\s*=\s*"[^"]*"/, `\nsource = ${safeSource}`);
-    if (newStanza !== stanza) {
-      updated = updated.slice(0, hIdx) + newStanza + updated.slice(stanzaEnd);
+    const stanza = updated.slice(mIdx, stanzaEnd);
+
+    let newStanza = stanza;
+
+    // Refresh source= (handles "double" and 'single' quoted values, indented keys).
+    const sourceUpdated = newStanza.replace(/\n[ \t]*source\s*=\s*(?:"[^"]*"|'[^']*')/, `\nsource = ${safeSource}`);
+    if (sourceUpdated !== newStanza) {
+      newStanza = sourceUpdated;
       toUpdate.push("source");
+    } else if (!/\n[ \t]*source\s*=/.test(newStanza)) {
+      newStanza = newStanza.trimEnd() + `\nsource = ${safeSource}\n`;
+      toUpdate.push("source");
+    }
+
+    // Normalize source_type to "local" (repair wrong value or insert if absent).
+    const stMatch = newStanza.match(/\n[ \t]*source_type\s*=\s*(?:"([^"]*)"|'([^']*)')/);
+    if (stMatch) {
+      const currentValue = stMatch[1] ?? stMatch[2] ?? "";
+      if (currentValue !== "local") {
+        newStanza = newStanza.replace(/\n[ \t]*source_type\s*=\s*(?:"[^"]*"|'[^']*')/, '\nsource_type = "local"');
+        toUpdate.push("source_type");
+      }
+    } else if (!/\n[ \t]*source_type\s*=/.test(newStanza)) {
+      newStanza = newStanza.trimEnd() + '\nsource_type = "local"\n';
+      toUpdate.push("source_type");
+    }
+
+    if (newStanza !== stanza) {
+      updated = updated.slice(0, mIdx) + newStanza + updated.slice(stanzaEnd);
     }
   }
 
-  if (!updated.includes(pluginHeader)) {
+  const pIdx = findTomlSectionStart(updated, pluginHeader, null);
+  if (pIdx === -1) {
     updated += `\n${pluginHeader}\nenabled = true\n`;
     toAdd.push(pluginHeader);
   } else {
-    // Flip enabled = false → enabled = true within this stanza.
-    const hIdx = updated.indexOf(pluginHeader);
-    const nextSec = updated.indexOf("\n[", hIdx + pluginHeader.length);
+    const afterHeaderLine = updated.indexOf("\n", pIdx);
+    const scanFrom = afterHeaderLine === -1 ? updated.length : afterHeaderLine + 1;
+    const nextSec = findNextSectionStart(updated, scanFrom);
     const stanzaEnd = nextSec === -1 ? updated.length : nextSec;
-    const stanza = updated.slice(hIdx, stanzaEnd);
-    const newStanza = stanza.replace(/\nenabled\s*=\s*false/, "\nenabled = true");
-    if (newStanza !== stanza) {
-      updated = updated.slice(0, hIdx) + newStanza + updated.slice(stanzaEnd);
+    const stanza = updated.slice(pIdx, stanzaEnd);
+
+    let newStanza = stanza;
+
+    // Flip enabled = false → true, or insert if absent entirely.
+    const flipped = newStanza.replace(/\n[ \t]*enabled\s*=\s*false/, "\nenabled = true");
+    if (flipped !== newStanza) {
+      newStanza = flipped;
       toUpdate.push("enabled");
+    } else if (!/\n[ \t]*enabled\s*=/.test(newStanza)) {
+      newStanza = newStanza.trimEnd() + "\nenabled = true\n";
+      toUpdate.push("enabled");
+    }
+
+    if (newStanza !== stanza) {
+      updated = updated.slice(0, pIdx) + newStanza + updated.slice(stanzaEnd);
     }
   }
 
