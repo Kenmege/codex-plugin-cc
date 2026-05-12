@@ -287,6 +287,86 @@ test("setup json redacts authenticated account identity", () => {
   assert.equal(payload.auth.redacted, true);
 });
 
+test("enable writes marketplace and plugin stanzas to a fresh config", () => {
+  const configPath = path.join(os.tmpdir(), `codex-enable-fresh-${Date.now()}.toml`);
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Plugin registered/);
+  assert.match(result.stdout, /Restart Codex CLI/);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.match(written, /\[marketplaces\.claude-review-private\]/);
+  assert.match(written, /source_type = "local"/);
+  assert.match(written, /\[plugins\."claude-review@claude-review-private"\]/);
+  assert.match(written, /enabled = true/);
+});
+
+test("enable is idempotent — running twice does not duplicate stanzas", () => {
+  const configPath = path.join(os.tmpdir(), `codex-enable-idempotent-${Date.now()}.toml`);
+  spawnSync(process.execPath, [helper, "enable", "--config", configPath], { cwd: root, encoding: "utf8" });
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /already registered/);
+  const written = fs.readFileSync(configPath, "utf8");
+  const marketplaceCount = (written.match(/\[marketplaces\.claude-review-private\]/g) ?? []).length;
+  const pluginCount = (written.match(/\[plugins\."claude-review@claude-review-private"\]/g) ?? []).length;
+  assert.equal(marketplaceCount, 1);
+  assert.equal(pluginCount, 1);
+});
+
+test("enable --dry-run reports what would be added without writing the config file", () => {
+  const configPath = path.join(os.tmpdir(), `codex-enable-dryrun-${Date.now()}.toml`);
+  const result = spawnSync(process.execPath, [helper, "enable", "--dry-run", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /\[dry-run\]/);
+  assert.match(result.stdout, /claude-review-private/);
+  assert.equal(fs.existsSync(configPath), false, "--dry-run must not write the config file");
+});
+
+test("enable --json emits machine-parseable registration result", () => {
+  const configPath = path.join(os.tmpdir(), `codex-enable-json-${Date.now()}.toml`);
+  const result = spawnSync(process.execPath, [helper, "enable", "--json", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(typeof payload.configPath, "string");
+  assert.equal(typeof payload.pluginRoot, "string");
+  assert.equal(payload.alreadyEnabled, false);
+  assert.equal(payload.dryRun, false);
+  assert.ok(Array.isArray(payload.added) && payload.added.length > 0);
+});
+
+test("enable preserves existing config content when appending stanzas", () => {
+  const configPath = path.join(os.tmpdir(), `codex-enable-preserve-${Date.now()}.toml`);
+  const existing = `model = "gpt-5.5"\n\n[agents]\nmax_depth = 2\n`;
+  fs.writeFileSync(configPath, existing, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.ok(written.startsWith(existing), "existing config content must be preserved verbatim");
+  assert.match(written, /\[marketplaces\.claude-review-private\]/);
+});
+
+test("enable source path uses forward slashes on all platforms", () => {
+  const configPath = path.join(os.tmpdir(), `codex-enable-slashes-${Date.now()}.toml`);
+  spawnSync(process.execPath, [helper, "enable", "--config", configPath], { cwd: root, encoding: "utf8" });
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.doesNotMatch(written, /source = ".*\\.*"/, "TOML source path must use forward slashes");
+});
+
 test("status finalizes running jobs older than timeout as failed with a reason", () => {
   const cwd = makeDirtyRepo();
   const jobId = "review-stale";

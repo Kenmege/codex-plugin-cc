@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import fs from "node:fs";
@@ -48,6 +49,8 @@ const SCHEMA_PATH = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
 const ELITE_SCHEMA_PATH = path.join(ROOT_DIR, "schemas", "elite-review-output.schema.json");
 const AGENTIC_SCHEMA_PATH = path.join(ROOT_DIR, "schemas", "agentic-review-output.schema.json");
 const ADD_DIR_BOUNDARY_ENV = "CODEX_CLAUDE_ADD_DIR_BOUNDARY";
+const CODEX_MARKETPLACE_KEY = "claude-review-private";
+const CODEX_PLUGIN_KEY = `claude-review@${CODEX_MARKETPLACE_KEY}`;
 const MAX_MCP_CONFIG_BYTES = 1024 * 1024;
 const PACKAGE_JSON_PATH = path.join(ROOT_DIR, "package.json");
 
@@ -154,6 +157,7 @@ function printUsage() {
   console.log(
     [
       "Usage:",
+      "  codex-claude-review enable",
       "  codex-claude-review setup",
       "  codex-claude-review review [flags] [focus text]",
       "  codex-claude-review adversarial-review [flags] [focus text]",
@@ -185,6 +189,11 @@ function printUsage() {
       "  --debug                     include extra diagnostic log lines",
       `  --permission-mode <mode>    one of: ${ALLOWED_PERMISSION_MODES.join(", ")}`,
       "  --timeout-ms <n>            override review timeout (lane default: 30 minutes)",
+      "",
+      "Flags (enable):",
+      "  --json                      emit machine-parseable registration status",
+      "  --dry-run                   show what would be written without modifying the config",
+      "  --config <path>             override Codex config path (default: ~/.codex/config.toml)",
       "",
       "Flags (setup):",
       "  --json                      emit machine-parseable setup status with auth identity redacted"
@@ -667,6 +676,72 @@ async function runSnapshot(cwd, jobId, snapshot) {
   }
 }
 
+function handleEnable(argv) {
+  const { options } = parseCommandInput(argv, { booleanOptions: ["json", "dry-run"], valueOptions: ["config"] });
+  const configPath = options.config
+    ? path.resolve(options.config)
+    : path.join(os.homedir(), ".codex", "config.toml");
+  const pluginRoot = ROOT_DIR;
+
+  const pluginJsonPath = path.join(pluginRoot, ".codex-plugin", "plugin.json");
+  if (!fs.existsSync(pluginJsonPath)) {
+    throw new Error(`plugin manifest not found at ${pluginJsonPath} — run 'enable' from the installed plugin directory`);
+  }
+
+  let existing = "";
+  try {
+    existing = fs.readFileSync(configPath, "utf8");
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
+
+  const marketplaceHeader = `[marketplaces.${CODEX_MARKETPLACE_KEY}]`;
+  const pluginHeader = `[plugins."${CODEX_PLUGIN_KEY}"]`;
+  const hasMarketplace = existing.includes(marketplaceHeader);
+  const hasPlugin = existing.includes(pluginHeader);
+
+  // Forward slashes work on all platforms in TOML string values (including Windows).
+  const normalizedRoot = pluginRoot.split(path.sep).join("/");
+  const toAdd = [];
+  let toAppend = "";
+
+  if (!hasMarketplace) {
+    toAppend += `\n${marketplaceHeader}\nsource_type = "local"\nsource = "${normalizedRoot}"\n`;
+    toAdd.push(marketplaceHeader);
+  }
+  if (!hasPlugin) {
+    toAppend += `\n${pluginHeader}\nenabled = true\n`;
+    toAdd.push(pluginHeader);
+  }
+
+  const alreadyEnabled = toAdd.length === 0;
+  const dryRun = options["dry-run"] ?? false;
+
+  if (!dryRun && !alreadyEnabled) {
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.appendFileSync(configPath, toAppend, "utf8");
+  }
+
+  if (options.json) {
+    process.stdout.write(
+      JSON.stringify({ configPath, pluginRoot, alreadyEnabled, dryRun, added: toAdd }, null, 2) + "\n"
+    );
+    return;
+  }
+
+  if (alreadyEnabled) {
+    process.stdout.write(`Plugin already registered in ${configPath}\n`);
+  } else if (dryRun) {
+    process.stdout.write(`[dry-run] Would append to ${configPath}:\n${toAppend}\n`);
+  } else {
+    process.stdout.write(
+      `Plugin registered in ${configPath}\n` +
+        `Added: ${toAdd.join(", ")}\n` +
+        `Restart Codex CLI to activate the plugin.\n`
+    );
+  }
+}
+
 function handleSetup(argv) {
   const { options } = parseCommandInput(argv, { booleanOptions: ["json"], valueOptions: ["cwd"] });
   const cwd = path.resolve(options.cwd ?? process.cwd());
@@ -920,6 +995,9 @@ async function main() {
       return;
     }
     switch (command) {
+      case "enable":
+        handleEnable(argv);
+        break;
       case "setup":
         handleSetup(argv);
         break;
