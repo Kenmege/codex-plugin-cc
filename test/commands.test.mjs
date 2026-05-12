@@ -603,6 +603,64 @@ test("enable inserts missing enabled key into an existing plugin stanza", () => 
   assert.match(written, /enabled = true/, "enabled key must be inserted when absent");
 });
 
+test("enable rejects unknown positional with exit code 2 (usage error)", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-exit2-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const result = spawnSync(process.execPath, [helper, "enable", "--dryrun", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 2, "unknown-flag must use the usage/validation exit code (2)");
+});
+
+test("enable does not mistake multiline array elements for section headers", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-multiarr-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  // Multiline nested-array value before the source key. A naive `startsWith("[")`
+  // boundary detector would treat `  ["a"]` as a section header and corrupt the file.
+  const multilineArrayConfig =
+    `[marketplaces.claude-review-private]\n` +
+    `source_type = "local"\n` +
+    `labels = [\n` +
+    `  ["a"],\n` +
+    `  ["b"]\n` +
+    `]\n` +
+    `source = "/old/stale/path"\n\n` +
+    `[plugins."claude-review@claude-review-private"]\nenabled = true\n`;
+  fs.writeFileSync(configPath, multilineArrayConfig, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const written = fs.readFileSync(configPath, "utf8");
+  assert.doesNotMatch(written, /\/old\/stale\/path/, "stale source must be refreshed past the multiline array");
+  // The labels array must still be intact.
+  assert.match(written, /labels = \[\n\s*\["a"\],\n\s*\["b"\]\n\]/);
+});
+
+test("enable preserves existing indentation on key replacements (idempotent for indented configs)", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-keepindent-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  // First run from clean: writes flush-left source.
+  spawnSync(process.execPath, [helper, "enable", "--config", configPath], { cwd: root, encoding: "utf8" });
+  // Manually re-indent the source line to 4 spaces.
+  let content = fs.readFileSync(configPath, "utf8");
+  content = content.replace(/\nsource = /, "\n    source = ");
+  content = content.replace(/\nsource_type = /, "\n    source_type = ");
+  fs.writeFileSync(configPath, content, "utf8");
+  // Second run must NOT rewrite the file (indented value still matches current root → no change).
+  const before = fs.readFileSync(configPath, "utf8");
+  const result = spawnSync(process.execPath, [helper, "enable", "--config", configPath], {
+    cwd: root,
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const after = fs.readFileSync(configPath, "utf8");
+  assert.equal(after, before, "config must be untouched when indented values already match");
+  assert.match(result.stdout, /already registered/);
+});
+
 test("enable treats [[array_table]] as a stanza boundary", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-enable-arraytbl-"));
   const configPath = path.join(tmpDir, "config.toml");

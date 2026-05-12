@@ -685,15 +685,63 @@ function normalizeTomlLine(line) {
   return left.replace(/\s*#.*$/, "").trimEnd();
 }
 
+// Count unescaped `[` and `]` that appear outside double/single quoted strings on a line.
+// Used to track multiline-array depth so an array element line like `  ["a"]` is not
+// mistaken for a section header.
+function countBracketsOutsideStrings(line) {
+  let open = 0;
+  let close = 0;
+  let inDouble = false;
+  let inSingle = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === "\\" && (inDouble || inSingle)) { i += 1; continue; }
+    if (ch === '"' && !inSingle) { inDouble = !inDouble; continue; }
+    if (ch === "'" && !inDouble) { inSingle = !inSingle; continue; }
+    if (inDouble || inSingle) continue;
+    if (ch === "[") open += 1;
+    else if (ch === "]") close += 1;
+  }
+  return { open, close };
+}
+
+// True iff the normalised line is a complete TOML table header line:
+//   [key.path]   or   [[key.path]]
+// Rejects multiline-array element lines like `["a"]` ON ITS OWN — the depth tracker
+// in findTomlSectionStart / findNextSectionStart provides the surrounding context.
+function isCompleteTableHeader(normalized) {
+  if (normalized.startsWith("[[") && normalized.endsWith("]]")) {
+    return /^\[\[[^[\]]+\]\]$/.test(normalized);
+  }
+  if (
+    normalized.startsWith("[")
+    && !normalized.startsWith("[[")
+    && normalized.endsWith("]")
+    && !normalized.endsWith("]]")
+  ) {
+    return /^\[[^[\]]+\]$/.test(normalized);
+  }
+  return false;
+}
+
 // Returns the byte offset where a non-commented header line equal to bareHeader
 // (or the optional quoted-key variant) begins. Tolerant of indentation, inline
-// comments, and CRLF line endings.
+// comments, and CRLF line endings. Ignores lines inside a multiline value.
 function findTomlSectionStart(content, bareHeader, quotedHeader) {
   let pos = 0;
+  let bracketDepth = 0;
   for (const line of content.split("\n")) {
     const normalized = normalizeTomlLine(line);
-    if (normalized !== null && (normalized === bareHeader || (quotedHeader && normalized === quotedHeader))) {
+    if (
+      normalized !== null
+      && bracketDepth === 0
+      && (normalized === bareHeader || (quotedHeader && normalized === quotedHeader))
+    ) {
       return pos;
+    }
+    if (normalized !== null) {
+      const { open, close } = countBracketsOutsideStrings(normalized);
+      bracketDepth = Math.max(0, bracketDepth + open - close);
     }
     pos += line.length + 1;
   }
@@ -701,18 +749,22 @@ function findTomlSectionStart(content, bareHeader, quotedHeader) {
 }
 
 // Returns the byte offset of the NEXT TOML table header at or after fromOffset,
-// or -1 if none. Used to bound an existing stanza without missing indented
-// headers that `indexOf("\n[")` would skip.
+// or -1 if none. Treats both `[foo]` and `[[foo]]` as boundaries; ignores lines
+// inside a multiline array value (depth tracking).
 function findNextSectionStart(content, fromOffset) {
   let pos = fromOffset;
+  let bracketDepth = 0;
   while (pos < content.length) {
     const nlIdx = content.indexOf("\n", pos);
     const lineEnd = nlIdx === -1 ? content.length : nlIdx;
     const line = content.slice(pos, lineEnd);
     const normalized = normalizeTomlLine(line);
-    if (normalized !== null && normalized.startsWith("[")) {
-      // Treat both bare tables [foo] and array-of-tables [[foo]] as stanza boundaries.
+    if (normalized !== null && bracketDepth === 0 && isCompleteTableHeader(normalized)) {
       return pos;
+    }
+    if (normalized !== null) {
+      const { open, close } = countBracketsOutsideStrings(normalized);
+      bracketDepth = Math.max(0, bracketDepth + open - close);
     }
     if (nlIdx === -1) return -1;
     pos = nlIdx + 1;
@@ -736,7 +788,7 @@ function handleEnable(argv) {
   const { options, positionals } = parseCommandInput(argv, { booleanOptions: ["json", "dry-run"], valueOptions: ["config"] });
 
   if (positionals.length > 0) {
-    throw new Error(`unknown arguments: ${positionals.join(" ")} — use --dry-run (not --dryrun) to preview changes`);
+    throw new Error(`Expected no positional arguments, got: ${positionals.join(" ")} — use --dry-run (not --dryrun) to preview changes`);
   }
   if (options.config !== undefined && (typeof options.config !== "string" || options.config.trim() === "")) {
     throw new Error("--config requires a non-empty path argument");
@@ -788,7 +840,11 @@ function handleEnable(argv) {
     let newStanza = stanza;
 
     // Refresh source= (handles "double" and 'single' quoted values, indented keys).
-    const sourceUpdated = newStanza.replace(/\n[ \t]*source\s*=\s*(?:"[^"]*"|'[^']*')/, `\nsource = ${safeSource}`);
+    // Preserve any existing leading whitespace so an indented config stays indented.
+    const sourceUpdated = newStanza.replace(
+      /\n([ \t]*)source\s*=\s*(?:"[^"]*"|'[^']*')/,
+      (_, indent) => `\n${indent}source = ${safeSource}`
+    );
     if (sourceUpdated !== newStanza) {
       newStanza = sourceUpdated;
       toUpdate.push("source");
@@ -797,12 +853,15 @@ function handleEnable(argv) {
       toUpdate.push("source");
     }
 
-    // Normalize source_type to "local" (repair wrong value or insert if absent).
+    // Normalize source_type to "local" (repair wrong value or insert if absent). Preserve indent.
     const stMatch = newStanza.match(/\n[ \t]*source_type\s*=\s*(?:"([^"]*)"|'([^']*)')/);
     if (stMatch) {
       const currentValue = stMatch[1] ?? stMatch[2] ?? "";
       if (currentValue !== "local") {
-        newStanza = newStanza.replace(/\n[ \t]*source_type\s*=\s*(?:"[^"]*"|'[^']*')/, '\nsource_type = "local"');
+        newStanza = newStanza.replace(
+          /\n([ \t]*)source_type\s*=\s*(?:"[^"]*"|'[^']*')/,
+          (_, indent) => `\n${indent}source_type = "local"`
+        );
         toUpdate.push("source_type");
       }
     } else if (!/\n[ \t]*source_type\s*=/.test(newStanza)) {
@@ -828,8 +887,11 @@ function handleEnable(argv) {
 
     let newStanza = stanza;
 
-    // Flip enabled = false → true, or insert if absent entirely.
-    const flipped = newStanza.replace(/\n[ \t]*enabled\s*=\s*false/, "\nenabled = true");
+    // Flip enabled = false → true (preserving indent), or insert if absent entirely.
+    const flipped = newStanza.replace(
+      /\n([ \t]*)enabled\s*=\s*false/,
+      (_, indent) => `\n${indent}enabled = true`
+    );
     if (flipped !== newStanza) {
       newStanza = flipped;
       toUpdate.push("enabled");
