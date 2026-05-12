@@ -72,12 +72,65 @@ export function runCommandCapture(command, args, options = {}) {
     const stderrChunks = [];
     const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024;
     const tailBytes = options.tailBytes ?? DEFAULT_CAPTURE_TAIL_BYTES;
+
+    // Optional input transport: feed bytes into the child's stdin so the caller does
+    // not have to put a large prompt into argv. Avoids platform argv length limits
+    // (Windows ~32K, macOS ~256K) and removes a class of quoting bugs.
+    //
+    // Two flavours:
+    //   - `inputPath` (file path) — preferred when the prompt is already persisted
+    //     somewhere durable (e.g. .claude-review/jobs/<id>.prompt.md). We open the
+    //     fd and hand it to spawn() as stdio[0]. NOT recommended for paths under
+    //     os.tmpdir() — CodeQL's js/insecure-temporary-file flags that pattern.
+    //   - `inputData` (string|Buffer) — preferred when the prompt is ephemeral.
+    //     We pipe the bytes through child.stdin and end the stream. No file on
+    //     disk, no temp dir, no cleanup, no CodeQL alert.
+    let stdinFd = null;
+    const stdinMode = options.inputData !== undefined ? "pipe" : (options.inputPath ? "fd" : "ignore");
+    if (stdinMode === "fd") {
+      try {
+        stdinFd = fs.openSync(options.inputPath, "r");
+      } catch (err) {
+        resolve({
+          pid: null,
+          command,
+          args,
+          cwd: options.cwd,
+          status: null,
+          signal: null,
+          stdout: "",
+          stderr: "",
+          stdoutTail: "",
+          stderrTail: "",
+          reason: "input_open_error",
+          error: err
+        });
+        return;
+      }
+    }
+
+    const stdioStdin = stdinMode === "fd" ? stdinFd : (stdinMode === "pipe" ? "pipe" : "ignore");
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       detached: process.platform !== "win32",
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: [stdioStdin, "pipe", "pipe"]
     });
+
+    if (stdinMode === "fd") {
+      // Once spawn() dup's the fd into the child, our handle is no longer needed.
+      // JUSTIFIED: close-on-already-closed fd is harmless and uncommon — node owns fd lifecycle for the child after spawn
+      try { fs.closeSync(stdinFd); } catch (_closeErr) { /* fd handed to child */ }
+    } else if (stdinMode === "pipe") {
+      // Some children (notably stub binaries that exit quickly, or claude in error
+      // states) close stdin before we finish writing — surfaces as EPIPE here. The
+      // child's exit code and stderr already tell the caller what happened; this
+      // handler prevents the EPIPE from crashing the parent.
+      // JUSTIFIED: EPIPE means the child closed stdin early — that's the child's signal, not our error
+      child.stdin.on("error", (_err) => { /* child closed stdin — observed via exit code */ });
+      // Write the entire prompt and close stdin so the child receives EOF.
+      child.stdin.end(options.inputData);
+    }
 
     let stdoutBytes = 0;
     let stderrBytes = 0;
@@ -318,13 +371,23 @@ export function binaryAvailable(command, args = ["--help"], options = {}) {
 
 export function spawnDetached(command, args, options = {}) {
   const openFds = [];
-  let stdio = "ignore";
+  let stdinFd = "ignore";
+
+  // Pipe a file's contents to the detached child's stdin (avoid putting large
+  // prompts into argv, which hits the Windows command-line length limit).
+  if (options.inputPath) {
+    const fd = fs.openSync(options.inputPath, "r");
+    openFds.push(fd);
+    stdinFd = fd;
+  }
+
+  let stdio = stdinFd === "ignore" ? "ignore" : [stdinFd, "ignore", "ignore"];
 
   if (options.logFile) {
     fs.mkdirSync(path.dirname(options.logFile), { recursive: true });
     const logFd = fs.openSync(options.logFile, "a", 0o600);
     openFds.push(logFd);
-    stdio = ["ignore", logFd, logFd];
+    stdio = [stdinFd === "ignore" ? "ignore" : stdinFd, logFd, logFd];
   }
 
   let child;
@@ -337,13 +400,25 @@ export function spawnDetached(command, args, options = {}) {
     });
   } finally {
     for (const fd of openFds) {
-      try {
-        fs.closeSync(fd);
-      } catch {}
+      // JUSTIFIED: fds have been dup'd into the spawned child; closing the parent handle is best-effort
+      try { fs.closeSync(fd); } catch (_closeErr) { /* parent handle release */ }
     }
   }
   child.unref();
   return child.pid;
+}
+
+// On Windows, `process.kill(pid, signal)` only signals the single PID — descendants
+// survive. The native equivalent of "kill the process tree" is `taskkill /t` (which
+// recursively terminates child processes). We invoke it synchronously via spawnSync
+// so existing callers (which assume sync termination) keep working unchanged.
+function windowsTaskkill(pid, { force }) {
+  const args = force ? ["/pid", String(pid), "/t", "/f"] : ["/pid", String(pid), "/t"];
+  const result = spawnSync("taskkill", args, { windowsHide: true });
+  if (result.error) return false;
+  // taskkill returns 0 on success and 128 when the process is already gone — both
+  // are "tree is dead" from our caller's perspective.
+  return result.status === 0 || result.status === 128;
 }
 
 export function terminateProcessTree(pid) {
@@ -351,11 +426,17 @@ export function terminateProcessTree(pid) {
     return false;
   }
 
+  if (process.platform === "win32") {
+    return windowsTaskkill(pid, { force: false });
+  }
+
   for (const target of [-Math.abs(pid), Math.abs(pid)]) {
     try {
       process.kill(target, "SIGTERM");
       return true;
-    } catch {}
+    } catch (_err) {
+      // JUSTIFIED: kill races with the child exiting; try the next target form (group then direct)
+    }
   }
 
   return false;
@@ -366,12 +447,17 @@ export function killProcessTree(pid) {
     return false;
   }
 
-  const targets = process.platform === "win32" ? [Math.abs(pid)] : [-Math.abs(pid), Math.abs(pid)];
-  for (const target of targets) {
+  if (process.platform === "win32") {
+    return windowsTaskkill(pid, { force: true });
+  }
+
+  for (const target of [-Math.abs(pid), Math.abs(pid)]) {
     try {
       process.kill(target, "SIGKILL");
       return true;
-    } catch {}
+    } catch (_err) {
+      // JUSTIFIED: kill races with the child exiting; try the next target form (group then direct)
+    }
   }
 
   return false;

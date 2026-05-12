@@ -151,5 +151,8 @@ plugins/codex/.generated/
 /.claude-review/
 /coverage/
 
+# ByteRover local context cache (created by codex-review subagent runs)
+/.brv/
+
 # Internal one-shot review or release prompts should not be published.
 docs/*_PROMPT.md
