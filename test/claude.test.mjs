@@ -628,11 +628,11 @@ test("default agentic review timeouts do not impose short review ceilings", () =
   assert.equal(DEFAULT_MARKDOWN_FALLBACK_NO_OUTPUT_TIMEOUT_MS, 5 * 60 * 1000);
 });
 
-test("long-context profile no longer ships the retired " + "context-" + "1m-2025-08-07 beta header", () => {
+test("long-context profile uses the current explicit Opus 1M selector", () => {
   const profile = selectClaudeProfile({ longContext: true });
 
   assert.equal(profile.profile, "long-context");
-  assert.equal(profile.model, "claude-sonnet-4-6");
+  assert.equal(profile.model, "claude-opus-4-7[1m]");
   assert.deepEqual(profile.betas, []);
   assert.equal(profile.betas.length, 0);
   assert.ok(!JSON.stringify(profile).includes("context-" + "1m"));
@@ -856,7 +856,7 @@ test("runClaudeStructuredReview wires agentic flags, system prompt, mcp config, 
     assert.ok(args.includes("--add-dir"));
     assert.ok(args.includes("/tmp/extra-dir"));
     assert.deepEqual(profile.betas, []);
-    assert.ok(args.includes("claude-sonnet-4-6"));
+    assert.ok(args.includes("claude-opus-4-7[1m]"));
     assert.ok(!args.includes("--betas"));
     // api-key auth honors budget
     assert.ok(args.includes("--max-budget-usd"));
@@ -892,7 +892,7 @@ test("runClaudeStructuredReview suppresses --max-budget-usd under subscription a
         targetLabel: "working tree diff",
         focusText: "",
         contextText: "diff --git a/app.js b/app.js",
-        model: "claude-sonnet-4-6",
+        model: "claude-opus-4-7[1m]",
         effort: "high",
         betas: [],
         agentic: true,

@@ -8,7 +8,8 @@
 
 > Claude reviews your Codex diffs. Read-only, evidence-cited, and agentic.
 
-Codex CLI sessions can ask Claude Opus 4.7 or long-context Sonnet 4.6 for a
+Codex CLI sessions can ask Claude Opus 4.7, including the explicit Opus 4.7
+1M long-context profile, for a
 high-scrutiny adversarial review of any diff. The reviewer gets read-only
 workspace access through `Read`, `Glob`, `Grep`, Task sub-agents, a
 domain-fenced `WebFetch`, and a narrow git wrapper. It does not get `Edit`,
@@ -186,10 +187,13 @@ Quality-first reviews default to:
 
 Large review snapshots automatically switch to a long-context profile:
 
-- model: `claude-sonnet-4-6`
+- model: `claude-opus-4-7[1m]`
 - effort: `high`
-- 1M context window is GA on Sonnet 4.6 / Opus 4.6+ at standard
-  pricing — no beta header required.
+- 1M context is selected with Claude Code's documented `[1m]` suffix.
+  Current Claude Code docs state that Opus 4.7 / Opus 4.6 / Sonnet 4.6
+  support 1M context, with availability varying by model and plan.
+  On Max, Team, and Enterprise, Opus 1M is included automatically; Sonnet
+  1M requires extra usage on subscription plans.
 
 Deep-review lane defaults:
 
@@ -307,10 +311,10 @@ All review-like commands accept:
 | `--background`                | Detach the review as a background job                            |
 | `--base <ref>`                | Base ref for branch diff (default: auto-detect origin/main)      |
 | `--scope auto\|working-tree\|branch` | Override scope detection                                  |
-| `--model <name>`              | Override the model (e.g., `claude-sonnet-4-6`)                   |
+| `--model <name>`              | Override the model (e.g., `claude-opus-4-7[1m]`)                 |
 | `--effort low\|medium\|high\|xhigh\|max` | Override effort                                       |
 | `--profile quality\|long-context` | Force a profile                                              |
-| `--long-context`              | Opt into the Sonnet 1M long-context profile                      |
+| `--long-context`              | Opt into the Opus 4.7 1M long-context profile                    |
 | `--legacy`                    | Disable agentic mode (structured output only, no tool access)    |
 | `--agentic`                   | Force agentic mode on (default for all lanes)                    |
 | `--unrestricted`              | Disable the safe-mode tool fence (raw shell, loud banner).       |

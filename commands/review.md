@@ -18,8 +18,8 @@ to the git-safe wrapper plus node/npm verification commands. Edits, writes,
 and shell mutations are blocked.
 
 Default model is `claude-opus-4-7` at `high` effort. The helper auto-switches
-to the long-context Sonnet 4.6 profile when the diff exceeds the Opus inline
-envelope.
+to the explicit Opus 4.7 1M profile (`claude-opus-4-7[1m]`) when the diff
+exceeds the inline envelope.
 
 ## Commands
 

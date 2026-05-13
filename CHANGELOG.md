@@ -108,6 +108,10 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
 - Raised default agentic timeout behavior so structured reviews can use the
   full review timeout by default, while no-output guards act as long stall
   detectors rather than short ceilings on real Opus work.
+- Updated the documented and actual long-context profile from plain Sonnet
+  4.6 to explicit `claude-opus-4-7[1m]`, matching current Claude Code docs:
+  Opus 4.7 / Opus 4.6 / Sonnet 4.6 support 1M context, `[1m]` selects the
+  1M variant, and availability varies by model and plan.
 - Relaxed marketplace-name validation so forks can rename their private Codex
   marketplace without breaking `npm run check`.
 - Hardened Claude review workflow auth selection so public fork PRs are skipped
@@ -249,9 +253,8 @@ First public OSS release of @kenmege/codex-plugin-cc.
 - Initial public release version-bumped to 1.0.1; the v1.0.0 tag was created
   during launch but never produced a published package or a GitHub release.
 - Removed the legacy `context-1m-2025-08-07` beta-header injection from the
-  long-context Sonnet profile. 1M context is GA on Sonnet 4.6 and Opus 4.6+ at
-  standard pricing as of 2026-03-13; the legacy header was retired for Sonnet 4
-  / 4.5 on 2026-04-30.
+  long-context profile. Current Claude Code selection uses `[1m]` model
+  variants instead of beta-header injection.
 
 ### Added
 

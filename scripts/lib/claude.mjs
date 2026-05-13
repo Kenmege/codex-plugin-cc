@@ -7,7 +7,7 @@ import { binaryAvailable, runCommand, runCommandCapture, runCommandChecked } fro
 export const DEFAULT_MODEL = "claude-opus-4-7";
 export const DEFAULT_EFFORT = "high";
 export const DEEP_REVIEW_EFFORT = "max";
-export const LONG_CONTEXT_MODEL = "claude-sonnet-4-6";
+export const LONG_CONTEXT_MODEL = "claude-opus-4-7[1m]";
 export const AUTO_LONG_CONTEXT_BYTES = 250_000;
 export const CLAUDE_SETTING_SOURCES = "project,local";
 export const CLAUDE_REVIEW_TIMEOUT_MS = 30 * 60 * 1000;
@@ -748,7 +748,7 @@ export function selectClaudeProfile(options = {}) {
   if (shouldAutoSwitchToLongContext) {
     const notes = wantsLongContext
       ? []
-      : ["Auto-switched to the long-context Sonnet profile because the review snapshot exceeded the Opus inline threshold."];
+      : ["Auto-switched to the explicit Opus 4.7 1M long-context profile because the review snapshot exceeded the inline threshold."];
     return {
       model: LONG_CONTEXT_MODEL,
       effort: options.effort ?? DEFAULT_EFFORT,
@@ -759,7 +759,7 @@ export function selectClaudeProfile(options = {}) {
   }
 
   const overrideNotes = options.model && wantsLongContext
-    ? ["Long-context was requested with an explicit model override, so the helper kept the explicit model and did not force the documented Sonnet long-context profile."]
+    ? ["Long-context was requested with an explicit model override, so the helper kept the explicit model and did not force the documented Opus 4.7 1M profile."]
     : [];
 
   return {

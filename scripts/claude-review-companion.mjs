@@ -188,7 +188,7 @@ function printUsage() {
       "  --model <name>              override model (default: claude-opus-4-7)",
       "  --effort low|medium|high|xhigh|max",
       "  --profile quality|long-context",
-      "  --long-context              opt into the Sonnet 1M long-context profile",
+      "  --long-context              opt into the Opus 4.7 1M long-context profile",
       "  --legacy                    disable agentic mode (structured output only)",
       "  --agentic                   force agentic mode on (default: on)",
       "  --unrestricted              raw shell access (LOUDLY logged; trust boundary off)",
@@ -483,9 +483,6 @@ function prepareSnapshot(cwd, kind, options, focusText) {
     } else {
       notes.push(`Budget cap: $${budget.toFixed(2)} via --max-budget-usd.`);
     }
-  }
-  if (agentic && selectedProfile.betas?.length && subscriptionAuth) {
-    notes.push("Long-context Sonnet beta header was requested but Claude only honors --betas on api-key auth; suppressed under subscription. The Sonnet model still runs but without the 1M context beta.");
   }
   const strictMcp = resolveStrictMcp(options);
   if (strictMcp) {
