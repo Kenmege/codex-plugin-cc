@@ -6,6 +6,8 @@ The format follows Keep a Changelog and this project uses Semantic Versioning.
 
 ## [Unreleased]
 
+## [1.0.4] — 2026-05-13
+
 ### Changed
 
 - `.github/workflows/claude.yml`: bumped `--max-turns` from 35 to 80 on

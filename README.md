@@ -431,9 +431,9 @@ and only publishes when the repository variable
 `GH_PACKAGES_PUBLISH_ENABLED=true` is set. The workflow uses the automatic
 `GITHUB_TOKEN` with `packages: write`; no npm registry token is required for the
 same-repository GitHub Packages release path. Release tags must match the
-package version exactly: `package.json` version `1.0.3` is published only from
-tag `v1.0.3`; a prerelease smoke must first commit matching `1.0.3-rc.1`
-metadata before pushing `v1.0.3-rc.1`.
+package version exactly: `package.json` version `1.0.4` is published only from
+tag `v1.0.4`; a prerelease smoke must first commit matching `1.0.4-rc.1`
+metadata before pushing `v1.0.4-rc.1`.
 
 ## Repository Layout
 
