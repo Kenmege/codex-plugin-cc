@@ -68,8 +68,9 @@ Expected before first npmjs publish:
 2. Push a semver tag matching the package version exactly:
 
    ```bash
-   git tag v1.0.10
-   git push origin v1.0.10
+   VERSION="$(node -p "require('./package.json').version")"
+   git tag "v${VERSION}"
+   git push origin "v${VERSION}"
    ```
 
 3. Watch the release workflow:

@@ -99,8 +99,9 @@ Use presets when you want one command that chooses the right lane:
 - Runtime validation: structured review output is validated before rendering,
   including persisted background-job results.
 
-This repository started from `openai/codex-plugin-cc` and keeps that history,
-but the runtime here is deliberately reversed:
+This repository started from OpenAI's Apache-2.0 Codex plugin reference
+preserved under `plugins/codex/`, and keeps that history. The runtime here is
+deliberately reversed:
 
 - upstream plugin: Claude Code -> Codex review/runtime
 - this plugin: Codex -> Claude review/runtime
