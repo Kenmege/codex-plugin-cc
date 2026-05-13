@@ -34,40 +34,63 @@ function formatSection(title, body) {
   return [`## ${title}`, "", body.trim() || "(none)", ""].join("\n");
 }
 
-function readUntrackedFile(cwd, relativePath) {
+function readBoundedTextFile(cwd, relativePath, maxBytes) {
   const fullPath = path.join(cwd, relativePath);
-  const stat = fs.statSync(fullPath);
-  if (stat.isDirectory()) {
+  const fd = fs.openSync(fullPath, "r");
+  try {
+    const stat = fs.fstatSync(fd);
+    if (stat.isDirectory()) {
+      return { kind: "skipped", reason: "directory" };
+    }
+    if (stat.size > maxBytes) {
+      return { kind: "skipped", reason: "size", bytes: stat.size };
+    }
+    const buffer = fs.readFileSync(fd);
+    if (!isProbablyText(buffer)) {
+      return { kind: "skipped", reason: "binary", bytes: stat.size };
+    }
+    return { kind: "text", text: buffer.toString("utf8").trimEnd() };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function readUntrackedFile(cwd, relativePath) {
+  const result = readBoundedTextFile(cwd, relativePath, MAX_UNTRACKED_BYTES);
+  if (result.reason === "directory") {
     return `### ${relativePath}\n(skipped: directory)`;
   }
-  if (stat.size > MAX_UNTRACKED_BYTES) {
-    return `### ${relativePath}\n(skipped: ${stat.size} bytes exceeds ${MAX_UNTRACKED_BYTES} byte limit)`;
+  if (result.reason === "size") {
+    return `### ${relativePath}\n(skipped: ${result.bytes} bytes exceeds ${MAX_UNTRACKED_BYTES} byte limit)`;
   }
-  const buffer = fs.readFileSync(fullPath);
-  if (!isProbablyText(buffer)) {
+  if (result.reason === "binary") {
     return `### ${relativePath}\n(skipped: binary file)`;
   }
-  return `### ${relativePath}\n\`\`\`\n${buffer.toString("utf8").trimEnd()}\n\`\`\``;
+  return `### ${relativePath}\n\`\`\`\n${result.text}\n\`\`\``;
 }
 
 function readReviewFile(cwd, relativePath) {
-  const fullPath = path.join(cwd, relativePath);
-  const stat = fs.statSync(fullPath);
-  if (stat.size > MAX_DIRECTORY_REVIEW_FILE_BYTES) {
+  const result = readBoundedTextFile(cwd, relativePath, MAX_DIRECTORY_REVIEW_FILE_BYTES);
+  if (result.reason === "directory") {
     return {
-      text: `### ${relativePath}\n(skipped: ${stat.size} bytes exceeds ${MAX_DIRECTORY_REVIEW_FILE_BYTES} byte directory-review limit)`,
-      skipped: { path: relativePath, bytes: stat.size, reason: "size" }
+      text: `### ${relativePath}\n(skipped: directory)`,
+      skipped: { path: relativePath, bytes: null, reason: "directory" }
     };
   }
-  const buffer = fs.readFileSync(fullPath);
-  if (!isProbablyText(buffer)) {
+  if (result.reason === "size") {
+    return {
+      text: `### ${relativePath}\n(skipped: ${result.bytes} bytes exceeds ${MAX_DIRECTORY_REVIEW_FILE_BYTES} byte directory-review limit)`,
+      skipped: { path: relativePath, bytes: result.bytes, reason: "size" }
+    };
+  }
+  if (result.reason === "binary") {
     return {
       text: `### ${relativePath}\n(skipped: binary file)`,
-      skipped: { path: relativePath, bytes: stat.size, reason: "binary" }
+      skipped: { path: relativePath, bytes: result.bytes, reason: "binary" }
     };
   }
   return {
-    text: `### ${relativePath}\n\`\`\`\n${buffer.toString("utf8").trimEnd()}\n\`\`\``,
+    text: `### ${relativePath}\n\`\`\`\n${result.text}\n\`\`\``,
     skipped: null
   };
 }

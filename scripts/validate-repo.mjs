@@ -96,7 +96,7 @@ if (/anthropics\/claude-code-action@v1/.test(claudeWorkflow)) {
   throw new Error(".github/workflows/claude.yml must not use the floating anthropics/claude-code-action@v1 ref.");
 }
 
-if (/^\s+mode:|prompt-file:/m.test(claudeWorkflow)) {
+if (/^\s+mode:/m.test(claudeWorkflow) || /^\s+prompt-file:/m.test(claudeWorkflow)) {
   throw new Error(".github/workflows/claude.yml must use current v1 inputs, not deprecated mode or prompt-file inputs.");
 }
 

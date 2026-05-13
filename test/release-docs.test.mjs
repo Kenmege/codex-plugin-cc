@@ -69,7 +69,7 @@ test("npmjs release configuration is public and token-safe", () => {
   assert.match(workflow, /--latest/);
   assert.match(workflow, /--prerelease/);
   assert.doesNotMatch(workflow, /--access restricted/);
-  assert.doesNotMatch(workflow, /npm\.pkg\.github\.com/);
+  assert.equal(workflow.includes("npm.pkg.github.com"), false);
 });
 
 test("release workflow fails closed when tag and package version differ", () => {
@@ -127,9 +127,16 @@ test("public trust metadata is attribution-safe and precise", () => {
   assert.doesNotMatch(claudeMarketplace.owner.name, /OpenAI/);
   assert.match(readme, /Windows is not a supported v1 platform/);
   assert.doesNotMatch(readme, /macOS, Linux, and Windows are supported/);
-  assert.doesNotMatch(readme, /scorecard\.dev|api\.scorecard\.dev/);
-  assert.match(security, /github\.com\/Kenmege\/codex-plugin-cc\/security\/advisories\/new/);
-  assert.match(bug, /npm ls -g codex-plugin-cc|codex-claude-review --version/);
+  assert.equal(readme.includes("scorecard.dev"), false);
+  assert.equal(readme.includes("api.scorecard.dev"), false);
+  assert.equal(
+    security.includes("github.com/Kenmege/codex-plugin-cc/security/advisories/new"),
+    true
+  );
+  assert.equal(
+    bug.includes("npm ls -g codex-plugin-cc") || bug.includes("codex-claude-review --version"),
+    true
+  );
   assert.doesNotMatch(bug, /@kenmege\/codex-plugin-cc/);
   assert.doesNotMatch(releaseNotes, /GPT-5\.5|gpt-5\.5/);
 });
@@ -219,7 +226,7 @@ test("security docs describe inherit-mcp Task subagent trust expansion", () => {
     assert.match(source, /--inherit-mcp/);
     assert.match(source, /Task subagents?/i);
     assert.match(source, /second-order trust expansion|expands trust indirectly/i);
-    assert.match(source, /docs\.anthropic\.com\/en\/docs\/claude-code\/sub-agents/);
+    assert.equal(source.includes("docs.anthropic.com/en/docs/claude-code/sub-agents"), true);
   }
 });
 

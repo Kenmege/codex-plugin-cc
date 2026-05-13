@@ -387,14 +387,21 @@ function validateMcpConfig(cwd, value) {
     throw new Error(`Invalid --mcp-config path: ${raw}`);
   }
   const resolved = path.resolve(cwd, raw);
-  const stat = fs.statSync(resolved);
-  if (!stat.isFile()) {
-    throw new Error(`Invalid --mcp-config path: ${raw} is not a file`);
+  const fd = fs.openSync(resolved, "r");
+  let source;
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) {
+      throw new Error(`Invalid --mcp-config path: ${raw} is not a file`);
+    }
+    if (stat.size > MAX_MCP_CONFIG_BYTES) {
+      throw new Error(`Invalid --mcp-config path: ${raw} exceeds ${MAX_MCP_CONFIG_BYTES} bytes`);
+    }
+    source = fs.readFileSync(fd, "utf8");
+  } finally {
+    fs.closeSync(fd);
   }
-  if (stat.size > MAX_MCP_CONFIG_BYTES) {
-    throw new Error(`Invalid --mcp-config path: ${raw} exceeds ${MAX_MCP_CONFIG_BYTES} bytes`);
-  }
-  parseMcpConfigJson(fs.readFileSync(resolved, "utf8"), raw);
+  parseMcpConfigJson(source, raw);
   return resolved;
 }
 

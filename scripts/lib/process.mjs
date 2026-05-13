@@ -5,8 +5,37 @@ import path from "node:path";
 export const DEFAULT_TERMINATION_GRACE_MS = 7_500;
 export const DEFAULT_CAPTURE_TAIL_BYTES = 64 * 1024;
 
+function isPathCommand(command) {
+  return command.includes("/") || command.includes("\\");
+}
+
+function findExecutableOnProcessPath(command) {
+  const searchPath = String(process.env.PATH ?? "");
+  for (const directory of searchPath.split(path.delimiter).filter(Boolean)) {
+    const candidate = path.join(directory, command);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {}
+  }
+  return command;
+}
+
+function resolveExecutable(command) {
+  if (typeof command !== "string" || command.trim() !== command || command.length === 0) {
+    throw new Error("Command must be a non-empty executable name or path");
+  }
+  if (isPathCommand(command)) {
+    return command;
+  }
+  if (!/^[A-Za-z0-9._-]+$/.test(command)) {
+    throw new Error(`Unsafe executable name: ${command}`);
+  }
+  return findExecutableOnProcessPath(command);
+}
+
 export function runCommand(command, args, options = {}) {
-  return spawnSync(command, args, {
+  return spawnSync(resolveExecutable(command), args, {
     cwd: options.cwd,
     env: options.env,
     encoding: "utf8",
@@ -68,6 +97,26 @@ function killChildProcessTree(child) {
 
 export function runCommandCapture(command, args, options = {}) {
   return new Promise((resolve) => {
+    let executable;
+    try {
+      executable = resolveExecutable(command);
+    } catch (err) {
+      resolve({
+        pid: null,
+        command,
+        args,
+        cwd: options.cwd,
+        status: null,
+        signal: null,
+        stdout: "",
+        stderr: "",
+        stdoutTail: "",
+        stderrTail: "",
+        reason: "unsafe_command",
+        error: err
+      });
+      return;
+    }
     const stdoutChunks = [];
     const stderrChunks = [];
     const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024;
@@ -110,7 +159,7 @@ export function runCommandCapture(command, args, options = {}) {
     }
 
     const stdioStdin = stdinMode === "fd" ? stdinFd : (stdinMode === "pipe" ? "pipe" : "ignore");
-    const child = spawn(command, args, {
+    const child = spawn(executable, args, {
       cwd: options.cwd,
       env: options.env,
       detached: process.platform !== "win32",
@@ -372,6 +421,7 @@ export function binaryAvailable(command, args = ["--help"], options = {}) {
 export function spawnDetached(command, args, options = {}) {
   const openFds = [];
   let stdinFd = "ignore";
+  const executable = resolveExecutable(command);
 
   // Pipe a file's contents to the detached child's stdin (avoid putting large
   // prompts into argv, which hits the Windows command-line length limit).
@@ -392,7 +442,7 @@ export function spawnDetached(command, args, options = {}) {
 
   let child;
   try {
-    child = spawn(command, args, {
+    child = spawn(executable, args, {
       cwd: options.cwd,
       env: options.env,
       detached: true,

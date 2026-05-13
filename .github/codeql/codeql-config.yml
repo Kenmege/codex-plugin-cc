@@ -1,0 +1,9 @@
+name: codex-plugin-cc-codeql
+
+# Keep CodeQL focused on the code that ships in the npm package and the release
+# automation that protects it. The upstream Codex reference subtree and test
+# fixtures are intentionally non-shipped surfaces; scanning them created public
+# alerts that did not map to runtime risk in this plugin.
+paths-ignore:
+  - plugins/codex/**
+  - tests/**
