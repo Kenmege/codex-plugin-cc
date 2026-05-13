@@ -9,9 +9,13 @@ import {
   AGENTIC_DISALLOWED_TOOLS,
   AGENTIC_TOOLS,
   ALLOWED_PERMISSION_MODES,
+  CLAUDE_REVIEW_TIMEOUT_MS,
   CLAUDE_SETUP_PROBE_TIMEOUT_ENV,
   CLAUDE_SETTING_SOURCES,
+  DEFAULT_AGENTIC_NO_OUTPUT_TIMEOUT_MS,
+  DEFAULT_AGENTIC_STRUCTURED_PROBE_TIMEOUT_MS,
   DEFAULT_CLAUDE_SETUP_PROBE_TIMEOUT_MS,
+  DEFAULT_MARKDOWN_FALLBACK_NO_OUTPUT_TIMEOUT_MS,
   DEFAULT_MODEL,
   DEFAULT_WEB_FETCH_DOMAINS,
   GIT_SAFE_WRAPPER_PATH,
@@ -616,6 +620,12 @@ test("runClaudeStructuredReview normalizes plan permission mode to default for s
 
 test("DEFAULT_MODEL is the latest Opus 4.7 build", () => {
   assert.equal(DEFAULT_MODEL, "claude-opus-4-7");
+});
+
+test("default agentic review timeouts do not impose short review ceilings", () => {
+  assert.equal(DEFAULT_AGENTIC_STRUCTURED_PROBE_TIMEOUT_MS, CLAUDE_REVIEW_TIMEOUT_MS);
+  assert.equal(DEFAULT_AGENTIC_NO_OUTPUT_TIMEOUT_MS, 5 * 60 * 1000);
+  assert.equal(DEFAULT_MARKDOWN_FALLBACK_NO_OUTPUT_TIMEOUT_MS, 5 * 60 * 1000);
 });
 
 test("long-context profile no longer ships the retired " + "context-" + "1m-2025-08-07 beta header", () => {
