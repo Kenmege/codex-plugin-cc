@@ -11,6 +11,22 @@ function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), "utf8");
 }
 
+function workflowStep(source, name) {
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => line.trim() === `- name: ${name}`);
+  assert.notEqual(start, -1, `missing workflow step: ${name}`);
+  const indent = lines[start].match(/^\s*/)?.[0].length ?? 0;
+  let end = start + 1;
+  while (end < lines.length) {
+    const line = lines[end];
+    const lineIndent = line.match(/^\s*/)?.[0].length ?? 0;
+    if (line.trim().startsWith("- name: ") && lineIndent === indent) break;
+    if (line.trim() && lineIndent < indent) break;
+    end += 1;
+  }
+  return lines.slice(start, end).join("\n");
+}
+
 test("pull request workflow cancels superseded matrix runs", () => {
   const source = read(".github/workflows/pull-request-ci.yml");
   assert.match(source, /concurrency:/);
@@ -211,6 +227,8 @@ test("Claude Code workflow is pinned, current, and auth-gated", () => {
   const prompt = read(".github/claude-review-prompt.md");
   const readme = read("README.md");
   const contributing = read("CONTRIBUTING.md");
+  const interactiveOauthStep = workflowStep(workflow, "Run Claude interactive response with OAuth");
+  const interactiveApiKeyStep = workflowStep(workflow, "Run Claude interactive response with API key");
 
   assert.match(workflow, /pull_request:\n\s+types: \[opened, synchronize, ready_for_review, reopened\]/);
   assert.match(workflow, /anthropics\/claude-code-action@[a-f0-9]{40}/);
@@ -231,8 +249,10 @@ test("Claude Code workflow is pinned, current, and auth-gated", () => {
   assert.match(workflow, /HEAD_SHA=\$\(gh api "repos\/\$\{\{ github\.repository \}\}\/pulls\/\$\{PR_NUM\}" --jq '\.head\.sha'\)/);
   assert.match(workflow, /echo "head_sha=\$\{HEAD_SHA\}" >> "\$GITHUB_OUTPUT"/);
   assert.match(workflow, /ref: \$\{\{ steps\.resolve_pr_head\.outputs\.head_sha \|\| github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/);
-  assert.doesNotMatch(workflow, /Run Claude interactive response with OAuth[\s\S]*?--max-turns 10/);
-  assert.doesNotMatch(workflow, /Run Claude interactive response with API key[\s\S]*?--max-turns 10/);
+  assert.match(interactiveOauthStep, /--max-turns 80/);
+  assert.match(interactiveApiKeyStep, /--max-turns 80/);
+  assert.doesNotMatch(interactiveOauthStep, /--max-turns 10/);
+  assert.doesNotMatch(interactiveApiKeyStep, /--max-turns 10/);
   assert.match(prompt, /Trust boundary:/);
   assert.match(prompt, /Review priorities, in order:/);
   assert.match(readme, /Reviewer Composition/);
