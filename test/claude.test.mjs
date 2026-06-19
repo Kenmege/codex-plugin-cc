@@ -660,6 +660,11 @@ test("DEFAULT_MODEL uses Claude Code's current Opus alias", () => {
   assert.equal(DEFAULT_EFFORT, "xhigh");
 });
 
+test("permission modes intentionally exclude Claude Code auto mode for read-only reviews", () => {
+  assert.deepEqual(ALLOWED_PERMISSION_MODES, ["default", "plan"]);
+  assert.throws(() => assertAllowedPermissionMode("auto"), /Invalid --permission-mode/);
+});
+
 test("default agentic review timeouts do not impose short review ceilings", () => {
   assert.equal(DEFAULT_AGENTIC_STRUCTURED_PROBE_TIMEOUT_MS, CLAUDE_REVIEW_TIMEOUT_MS);
   assert.equal(DEFAULT_AGENTIC_NO_OUTPUT_TIMEOUT_MS, 5 * 60 * 1000);

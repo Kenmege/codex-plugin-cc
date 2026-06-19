@@ -20,6 +20,7 @@ const required = [
   "commands/status.md",
   "commands/result.md",
   "commands/cancel.md",
+  "skills/claude-review/SKILL.md",
   "CHANGELOG.md",
   "SECURITY.md",
   "CONTRIBUTING.md",
@@ -56,6 +57,10 @@ const claudeWorkflow = fs.readFileSync(path.join(root, ".github/workflows/claude
 JSON.parse(fs.readFileSync(path.join(root, "schemas/review-output.schema.json"), "utf8"));
 JSON.parse(fs.readFileSync(path.join(root, "schemas/elite-review-output.schema.json"), "utf8"));
 JSON.parse(fs.readFileSync(path.join(root, "schemas/agentic-review-output.schema.json"), "utf8"));
+
+if (pluginManifest.skills !== "./skills/") {
+  throw new Error("plugin.json must expose bundled Codex skills through skills: ./skills/.");
+}
 
 if (!Array.isArray(pluginManifest.interface?.defaultPrompt) || pluginManifest.interface.defaultPrompt.length === 0) {
   throw new Error("plugin.json interface.defaultPrompt must be a non-empty array.");
@@ -147,6 +152,10 @@ if (packageLock.version !== packageJson.version || packageLock.packages?.[""]?.v
 
 if (!Array.isArray(packageJson.files) || packageJson.files.length === 0) {
   throw new Error("package.json files must explicitly list publishable contents.");
+}
+
+if (!packageJson.files.includes("skills/")) {
+  throw new Error("package.json files must include bundled Codex skills.");
 }
 
 for (const file of [

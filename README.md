@@ -37,11 +37,13 @@ codex-claude-review enable
 codex-claude-review doctor
 ```
 
-`enable` writes the marketplace and plugin stanzas to `~/.codex/config.toml`.
-Run it once after install; it is idempotent. Restart Codex CLI after running it.
-`doctor` checks Node, Git, Claude Code CLI, Claude auth, Codex registration,
-job storage, non-Git folder support, and optional live Claude runtime access
-with `--probe-runtime`.
+`enable` registers the plugin with Codex. On current Codex CLI versions it
+uses `codex plugin marketplace add` + `codex plugin add` through a local wrapper
+marketplace; on older runtimes or custom `--config` paths it falls back to the
+legacy TOML stanza writer. Run it once after install; it is idempotent. Restart
+Codex CLI after running it. `doctor` checks Node, Git, Claude Code CLI/version,
+Claude auth, Codex registration, job storage, non-Git folder support, and
+optional live Claude runtime access with `--probe-runtime`.
 
 Then run a review from any git workspace:
 
@@ -157,6 +159,9 @@ Plus the operational surface:
 - `/claude-review:status`, `/claude-review:result`, `/claude-review:cancel` —
   manage background review jobs.
 - `codex-claude-review` — direct CLI fallback outside slash commands.
+- Bundled Codex skill metadata (`skills/claude-review/SKILL.md`) lets current
+  Codex plugin runtimes discover when to route natural-language review requests
+  to the helper, not just explicit slash-command invocations.
 
 ## Agent Capabilities (safe-mode default)
 

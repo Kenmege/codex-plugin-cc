@@ -13,9 +13,10 @@ description: Diagnose codex-claude-review installation, Claude auth, Codex regis
 
 ## Plan
 
-Runs the first-run diagnostic. It checks Node, Git, Claude Code CLI, Claude
-auth, Codex plugin registration, writable job storage, non-Git folder support,
-and prompt transport. Use `--probe-runtime` when the user wants live Claude
+Runs the first-run diagnostic. It checks Node, Git, Claude Code CLI/version,
+Claude auth, Codex plugin registration (including the native Codex plugin CLI
+install path), writable job storage, non-Git folder support, and prompt
+transport. Use `--probe-runtime` when the user wants live Claude
 non-interactive model access checked as well.
 
 ## Commands

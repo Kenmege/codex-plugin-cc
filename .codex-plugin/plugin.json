@@ -20,6 +20,7 @@
     "security-review",
     "long-context"
   ],
+  "skills": "./skills/",
   "interface": {
     "displayName": "Claude Review",
     "shortDescription": "Agentic Claude Opus-alias review of Codex changes, with 1M long-context mode, read-only tool access, and sub-agent dispatch",

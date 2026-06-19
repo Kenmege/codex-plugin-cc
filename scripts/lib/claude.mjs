@@ -795,6 +795,28 @@ export function getClaudeAvailability(cwd) {
   return binaryAvailable("claude", ["--help"], { cwd });
 }
 
+export function getClaudeVersion(cwd) {
+  const result = runCommand("claude", ["--version"], { cwd });
+  if (result.error) {
+    return {
+      version: null,
+      detail: `claude --version failed (${result.error.code ?? "error"})`
+    };
+  }
+  const detail = String(result.stdout || result.stderr || "").trim();
+  if (result.status !== 0) {
+    return {
+      version: null,
+      detail: detail || "claude --version failed"
+    };
+  }
+  const match = detail.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/);
+  return {
+    version: match?.[0] ?? null,
+    detail: detail || "claude version unavailable"
+  };
+}
+
 export function getClaudeAuthStatus(cwd) {
   const result = runCommand("claude", ["auth", "status"], { cwd });
   if (result.error) {

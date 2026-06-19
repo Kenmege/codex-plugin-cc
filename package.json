@@ -20,6 +20,7 @@
     ".codex-plugin/",
     "commands/",
     "schemas/",
+    "skills/",
     "scripts/claude-review-companion.mjs",
     "scripts/validate-repo.mjs",
     "scripts/bin/",
