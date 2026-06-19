@@ -4,9 +4,9 @@ description: Register the claude-review plugin in the local Codex CLI config.
 
 # /claude-review:enable
 
-Register the claude-review plugin in the local Codex CLI config (`~/.codex/config.toml` on macOS/Linux, `%USERPROFILE%\.codex\config.toml` on Windows).
+Register the claude-review plugin in Codex. On current Codex CLI versions, the helper uses the native `codex plugin marketplace add` and `codex plugin add` path through a local wrapper marketplace under `$CODEX_HOME`/`~/.codex`. On older Codex runtimes or explicit `--config` overrides, it falls back to writing the legacy `[marketplaces.claude-review-private]` source entry and `[plugins."claude-review@claude-review-private"]` enable stanza.
 
-Writes the `[marketplaces.claude-review-private]` source entry and `[plugins."claude-review@claude-review-private"]` enable stanza. Safe to re-run: existing config content is preserved; the command also self-heals by refreshing a stale `source =` path, normalising `source_type` to `"local"`, and flipping `enabled = false` back to `true` so a moved checkout or previously disabled install is repaired in place. Idempotent — running again with everything already correct reports "already registered".
+Safe to re-run: native installs are refreshed idempotently, and legacy config writes preserve existing content while repairing stale `source =` paths, normalising `source_type` to `"local"`, and flipping `enabled = false` back to `true`.
 
 ## Preflight
 
@@ -32,8 +32,8 @@ codex-claude-review enable --config /path/to/config.toml
 ## Flags
 
 - `--json` — emit machine-parseable registration status
-- `--dry-run` — show what would be appended without modifying the config file
-- `--config <path>` — override Codex config path (default: `~/.codex/config.toml`)
+- `--dry-run` — show what would be installed or appended without modifying Codex config
+- `--config <path>` — override Codex config path and force the legacy TOML registration path (default: `$CODEX_HOME/config.toml` or `~/.codex/config.toml`)
 
 ## After Running
 

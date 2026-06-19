@@ -18,6 +18,7 @@ import {
   assertAllowedPermissionMode,
   getClaudeAuthStatus,
   getClaudeAvailability,
+  getClaudeVersion,
   isSubscriptionAuth,
   normalizeReviewVerdict,
   normalizeShipRecommendation,
@@ -55,7 +56,11 @@ const ELITE_SCHEMA_PATH = path.join(ROOT_DIR, "schemas", "elite-review-output.sc
 const AGENTIC_SCHEMA_PATH = path.join(ROOT_DIR, "schemas", "agentic-review-output.schema.json");
 const ADD_DIR_BOUNDARY_ENV = "CODEX_CLAUDE_ADD_DIR_BOUNDARY";
 const CODEX_MARKETPLACE_KEY = "claude-review-private";
-const CODEX_PLUGIN_KEY = `claude-review@${CODEX_MARKETPLACE_KEY}`;
+const CODEX_PLUGIN_NAME = "claude-review";
+const CODEX_PLUGIN_KEY = `${CODEX_PLUGIN_NAME}@${CODEX_MARKETPLACE_KEY}`;
+const CODEX_MARKETPLACE_WRAPPER_DIR = "marketplaces";
+const CODEX_MARKETPLACE_PLUGIN_SUBDIR = `plugins/${CODEX_PLUGIN_NAME}`;
+const MINIMUM_CLAUDE_VERSION = "2.1.183";
 const MAX_MCP_CONFIG_BYTES = 1024 * 1024;
 const PACKAGE_JSON_PATH = path.join(ROOT_DIR, "package.json");
 
@@ -218,10 +223,10 @@ function printUsage() {
       "  --exclude <basename>        repeatable; extra dirs to exclude from non-Git snapshot",
       "  --snapshot-temp-root <dir>  override temp root for the snapshot (default: os.tmpdir())",
       "  --job-dir <path>            override job artifact directory (env: CODEX_CLAUDE_REVIEW_JOB_DIR)",
-      "  --model <name>              override model (default: claude-opus-4-7)",
+      "  --model <name>              override model (default: opus)",
       "  --effort low|medium|high|xhigh|max",
       "  --profile quality|long-context",
-      "  --long-context              opt into the Opus 4.7 1M long-context profile",
+      "  --long-context              opt into Claude Code's Opus 1M long-context alias",
       "  --legacy                    disable agentic mode (structured output only)",
       "  --agentic                   force agentic mode on (default: on)",
       "  --unrestricted              raw shell access (LOUDLY logged; trust boundary off)",
@@ -239,7 +244,7 @@ function printUsage() {
       "Flags (enable):",
       "  --json                      emit machine-parseable registration status",
       "  --dry-run                   show what would be written without modifying the config",
-      "  --config <path>             override Codex config path (default: ~/.codex/config.toml)",
+      "  --config <path>             override Codex config path (default: $CODEX_HOME/config.toml or ~/.codex/config.toml)",
       "",
       "Flags (setup):",
       "  --json                      emit machine-parseable setup status with auth identity redacted",
@@ -258,7 +263,9 @@ function redactAuthDetail(auth) {
 }
 
 function buildSetupPayload(cwd) {
-  const claude = getClaudeAvailability(cwd);
+  const claudeAvailability = getClaudeAvailability(cwd);
+  const claudeVersion = claudeAvailability.available ? getClaudeVersion(cwd) : { version: null, detail: "claude unavailable" };
+  const claude = { ...claudeAvailability, version: claudeVersion.version, versionDetail: claudeVersion.detail };
   const auth = claude.available ? getClaudeAuthStatus(cwd) : { loggedIn: false, detail: "claude unavailable" };
   const runtime = claude.available && auth.loggedIn ? probeClaudeStructuredOutput(cwd) : { ready: false, detail: "runtime probe skipped" };
   const subscription = auth.loggedIn ? isSubscriptionAuth(auth) : false;
@@ -1008,6 +1015,210 @@ function writeTextFileAtomically(filePath, content, { backupExisting = false } =
   return { backupPath };
 }
 
+function resolveCodexHome() {
+  return process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(os.homedir(), ".codex");
+}
+
+function resolveDefaultCodexConfigPath() {
+  return path.join(resolveCodexHome(), "config.toml");
+}
+
+function buildMarketplaceWrapperManifest() {
+  return {
+    name: CODEX_MARKETPLACE_KEY,
+    interface: {
+      displayName: "Claude Review Private"
+    },
+    plugins: [
+      {
+        name: CODEX_PLUGIN_NAME,
+        source: {
+          source: "local",
+          path: `./${CODEX_MARKETPLACE_PLUGIN_SUBDIR}`
+        },
+        policy: {
+          installation: "AVAILABLE",
+          authentication: "ON_INSTALL"
+        },
+        category: "Coding"
+      }
+    ]
+  };
+}
+
+function codexPluginCliAvailable(cwd = process.cwd()) {
+  const result = runCommand("codex", ["plugin", "marketplace", "add", "--help"], { cwd, timeout: 10_000 });
+  return !result.error && result.status === 0;
+}
+
+function formatProcessFailure(result) {
+  return String(result.stderr || result.stdout || result.error?.message || "no output").trim();
+}
+
+function ensureMarketplaceWrapper(wrapperRoot, pluginRoot) {
+  const wrapperPluginDir = path.join(wrapperRoot, CODEX_MARKETPLACE_PLUGIN_SUBDIR);
+  fs.mkdirSync(path.dirname(wrapperPluginDir), { recursive: true });
+
+  const desiredRealPath = fs.realpathSync(pluginRoot);
+  let needsLink = true;
+  try {
+    const existing = fs.lstatSync(wrapperPluginDir);
+    if (!existing.isSymbolicLink()) {
+      throw new Error(`Refusing to replace non-symlink marketplace plugin path: ${wrapperPluginDir}`);
+    }
+    const currentRealPath = fs.realpathSync(wrapperPluginDir);
+    if (currentRealPath === desiredRealPath) {
+      needsLink = false;
+    } else {
+      fs.rmSync(wrapperPluginDir, { force: true, recursive: true });
+    }
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
+
+  if (needsLink) {
+    fs.symlinkSync(pluginRoot, wrapperPluginDir, process.platform === "win32" ? "junction" : "dir");
+  }
+
+  const manifestPath = path.join(wrapperRoot, ".agents", "plugins", "marketplace.json");
+  const manifest = `${JSON.stringify(buildMarketplaceWrapperManifest(), null, 2)}\n`;
+  writeTextFileAtomically(manifestPath, manifest);
+  return { wrapperRoot, wrapperPluginDir, manifestPath };
+}
+
+function resolveCodexPluginSourcePath(entry) {
+  const rawSourcePath = entry?.source?.path;
+  if (!rawSourcePath) return null;
+  const sourcePathText = String(rawSourcePath);
+  if (path.isAbsolute(sourcePathText)) return sourcePathText;
+
+  const marketplaceRoot = entry.marketplaceSource?.source ? String(entry.marketplaceSource.source) : null;
+  if (marketplaceRoot && path.isAbsolute(marketplaceRoot)) {
+    return path.resolve(marketplaceRoot, sourcePathText);
+  }
+
+  return path.resolve(sourcePathText);
+}
+
+function getCodexPluginCliStatus(pluginRoot, cwd = process.cwd()) {
+  const result = runCommand("codex", ["plugin", "list", "--json"], { cwd, timeout: 15_000 });
+  if (result.error || result.status !== 0) {
+    return { available: false, configured: false, enabled: false, detail: formatProcessFailure(result) };
+  }
+  try {
+    const parsed = JSON.parse(String(result.stdout || "{}"));
+    const installed = Array.isArray(parsed.installed) ? parsed.installed : [];
+    const entry = installed.find((item) => item?.pluginId === CODEX_PLUGIN_KEY);
+    if (!entry) {
+      return { available: true, configured: false, enabled: false, detail: "plugin not installed" };
+    }
+    const sourcePath = resolveCodexPluginSourcePath(entry);
+    let sourceMatches = false;
+    try {
+      sourceMatches = Boolean(sourcePath && fs.realpathSync(sourcePath) === fs.realpathSync(pluginRoot));
+    } catch (err) {
+      return {
+        available: true,
+        configured: false,
+        enabled: Boolean(entry.enabled),
+        detail: `plugin source path did not resolve: ${err.message}`,
+        sourcePath,
+        version: entry.version ?? null
+      };
+    }
+    return {
+      available: true,
+      configured: Boolean(entry.enabled && sourceMatches),
+      enabled: Boolean(entry.enabled),
+      detail: sourceMatches ? "plugin installed via Codex plugin CLI" : "plugin installed from a different source",
+      sourcePath,
+      version: entry.version ?? null
+    };
+  } catch (err) {
+    return { available: true, configured: false, enabled: false, detail: `codex plugin list parse failed: ${err.message}` };
+  }
+}
+
+function runCodexPluginCliEnable({ configPath, pluginRoot, dryRun, asJson }) {
+  const codexHome = path.dirname(configPath);
+  const wrapperRoot = path.join(codexHome, CODEX_MARKETPLACE_WRAPPER_DIR, CODEX_MARKETPLACE_KEY);
+  const before = getCodexPluginCliStatus(pluginRoot);
+  const alreadyEnabled = before.configured;
+
+  if (dryRun) {
+    const payload = {
+      configPath,
+      pluginRoot,
+      method: "codex-plugin-cli",
+      marketplaceRoot: wrapperRoot,
+      alreadyEnabled,
+      dryRun: true,
+      added: alreadyEnabled ? [] : ["marketplace", CODEX_PLUGIN_KEY],
+      updated: [],
+      backupPath: null
+    };
+    if (asJson) {
+      process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    } else if (alreadyEnabled) {
+      process.stdout.write(`[dry-run] Plugin already registered with Codex plugin CLI in ${configPath}\n`);
+    } else {
+      process.stdout.write(`[dry-run] Would install ${CODEX_PLUGIN_KEY} through Codex plugin CLI using ${wrapperRoot}\n`);
+    }
+    return;
+  }
+
+  const wrapper = ensureMarketplaceWrapper(wrapperRoot, pluginRoot);
+  const marketplace = runCommand("codex", ["plugin", "marketplace", "add", wrapper.wrapperRoot, "--json"], {
+    timeout: 60_000
+  });
+  if (marketplace.error || marketplace.status !== 0) {
+    throw new Error(`codex plugin marketplace add failed: ${formatProcessFailure(marketplace)}`);
+  }
+
+  const install = runCommand("codex", ["plugin", "add", CODEX_PLUGIN_KEY, "--json"], { timeout: 60_000 });
+  if (install.error || install.status !== 0) {
+    throw new Error(`codex plugin add failed: ${formatProcessFailure(install)}`);
+  }
+
+  const after = getCodexPluginCliStatus(pluginRoot);
+  if (!after.configured) {
+    throw new Error(`codex plugin install did not verify: ${after.detail}`);
+  }
+
+  const payload = {
+    configPath,
+    pluginRoot,
+    method: "codex-plugin-cli",
+    marketplaceRoot: wrapper.wrapperRoot,
+    alreadyEnabled,
+    dryRun: false,
+    added: alreadyEnabled ? [] : ["marketplace", CODEX_PLUGIN_KEY],
+    updated: alreadyEnabled ? [CODEX_PLUGIN_KEY] : [],
+    backupPath: null,
+    installedVersion: after.version ?? null
+  };
+
+  if (asJson) {
+    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    return;
+  }
+
+  if (alreadyEnabled) {
+    process.stdout.write(
+      `Plugin already registered with Codex plugin CLI in ${configPath}\n` +
+        `Refreshed local marketplace wrapper at ${wrapper.wrapperRoot}\n` +
+        `Restart Codex CLI to activate any refreshed plugin assets.\n`
+    );
+  } else {
+    process.stdout.write(
+      `Plugin registered with Codex plugin CLI in ${configPath}\n` +
+        `Marketplace wrapper: ${wrapper.wrapperRoot}\n` +
+        `Changed: marketplace, ${CODEX_PLUGIN_KEY}\n` +
+        `Restart Codex CLI to activate the plugin.\n`
+    );
+  }
+}
+
 function handleEnable(argv) {
   // Pre-scan: detect `--config` passed with no value (parseArgs leaves it as undefined,
   // which is indistinguishable from `--config` not passed at all).
@@ -1030,9 +1241,10 @@ function handleEnable(argv) {
     throw new Error("--config requires a non-empty path argument");
   }
 
-  const configPath = options.config
+  const explicitConfigPath = options.config !== undefined;
+  const configPath = explicitConfigPath
     ? path.resolve(options.config)
-    : path.join(os.homedir(), ".codex", "config.toml");
+    : resolveDefaultCodexConfigPath();
   const pluginRoot = ROOT_DIR;
 
   const pluginJsonPath = path.join(pluginRoot, ".codex-plugin", "plugin.json");
@@ -1042,6 +1254,16 @@ function handleEnable(argv) {
   const marketplaceManifestPath = path.join(pluginRoot, ".agents", "plugins", "marketplace.json");
   if (!fs.existsSync(marketplaceManifestPath)) {
     throw new Error(`marketplace manifest not found at ${marketplaceManifestPath} — run 'enable' from the installed plugin directory`);
+  }
+
+  if (!explicitConfigPath && codexPluginCliAvailable()) {
+    runCodexPluginCliEnable({
+      configPath,
+      pluginRoot,
+      dryRun: Boolean(options["dry-run"]),
+      asJson: Boolean(options.json)
+    });
+    return;
   }
 
   let existing = "";
@@ -1201,9 +1423,10 @@ function handleDoctor(argv) {
   const nodeSupported = nodeVersionAtLeast(nodeVersion, minimumNodeVersion);
 
   // Plugin configuration in ~/.codex/config.toml (or --config override).
-  const codexConfigPath = options.config
+  const explicitConfigPath = options.config !== undefined;
+  const codexConfigPath = explicitConfigPath
     ? path.resolve(options.config)
-    : path.join(os.homedir(), ".codex", "config.toml");
+    : resolveDefaultCodexConfigPath();
   let pluginConfigured = false;
   let configPathExists = false;
   let configReadError = null;
@@ -1216,6 +1439,10 @@ function handleDoctor(argv) {
       configReadError = err.message;
     }
   }
+  const pluginCliStatus = explicitConfigPath
+    ? { available: false, configured: false, enabled: false, detail: "skipped for --config override" }
+    : getCodexPluginCliStatus(ROOT_DIR);
+  pluginConfigured = pluginConfigured || pluginCliStatus.configured;
 
   // Codex session awareness — heuristic. Codex doesn't expose a public env var yet,
   // so we look for any CODEX_* env var or the well-known CODEX_PLUGIN_ROOT marker.
@@ -1235,6 +1462,7 @@ function handleDoctor(argv) {
   // Claude availability + auth — reuse the existing setup payload (without the
   // expensive runtime probe to keep doctor fast).
   const claude = getClaudeAvailability(cwd);
+  const claudeVersion = claude.available ? getClaudeVersion(cwd) : { version: null, detail: "claude unavailable" };
   const auth = claude.available ? getClaudeAuthStatus(cwd) : { loggedIn: false, detail: "claude unavailable" };
   const claudeCliAvailable = Boolean(claude.available);
   const claudeAuthenticated = Boolean(claude.available && auth.loggedIn);
@@ -1297,6 +1525,12 @@ function handleDoctor(argv) {
       message: auth.detail || "Claude CLI is not signed in.",
       recovery: "Run `claude auth login`."
     });
+  } else if (claudeVersion.version && !nodeVersionAtLeast(claudeVersion.version, MINIMUM_CLAUDE_VERSION)) {
+    problems.push({
+      code: "CLAUDE_VERSION_TOO_OLD",
+      message: `Claude Code CLI ${claudeVersion.version} is below the required ${MINIMUM_CLAUDE_VERSION} for this release's default ${DEFAULT_MODEL} / ${DEFAULT_EFFORT} review profile.`,
+      recovery: "Update Claude Code CLI, then re-run `codex-claude-review doctor --probe-runtime`."
+    });
   }
   if (!jobDirWritable) {
     problems.push({
@@ -1337,11 +1571,17 @@ function handleDoctor(argv) {
     node_required: `>=${minimumNodeVersion}`,
     node_supported: nodeSupported,
     plugin_configured: pluginConfigured,
+    plugin_config_method: pluginCliStatus.configured ? "codex-plugin-cli" : pluginConfigured ? "config-toml" : null,
+    plugin_cli_available: pluginCliStatus.available,
+    plugin_cli_detail: pluginCliStatus.detail,
     plugin_loaded_in_current_session: pluginLoadedInCurrentSession,
     requires_codex_reload: pluginConfigured && pluginLoadedInCurrentSession !== true,
     helper_available: helperAvailable,
     helper_version: helperVersion,
     claude_cli_available: claudeCliAvailable,
+    claude_cli_version: claudeVersion.version,
+    claude_cli_minimum_version: MINIMUM_CLAUDE_VERSION,
+    claude_cli_version_detail: claudeVersion.detail,
     claude_authenticated: claudeAuthenticated,
     claude_runtime_probe_performed: runtimeProbePerformed,
     claude_runtime_ready: runtimeProbe.ready,
@@ -1370,9 +1610,9 @@ function handleDoctor(argv) {
     "",
     `Node:                         ${payload.node_supported ? "YES" : "NO"} (${payload.node_version}; required ${payload.node_required})`,
     `Helper version:                 ${payload.helper_version}`,
-    `Plugin configured in Codex:     ${payload.plugin_configured ? "YES" : "NO"} (${codexConfigPath})`,
+    `Plugin configured in Codex:     ${payload.plugin_configured ? "YES" : "NO"} (${codexConfigPath}${payload.plugin_config_method ? `; ${payload.plugin_config_method}` : ""})`,
     `Plugin loaded in current session: ${payload.plugin_loaded_in_current_session === null ? "UNKNOWN" : payload.plugin_loaded_in_current_session ? "YES" : "NO"}`,
-    `Claude CLI available:           ${payload.claude_cli_available ? "YES" : "NO"}`,
+    `Claude CLI available:           ${payload.claude_cli_available ? "YES" : "NO"}${payload.claude_cli_version ? ` (${payload.claude_cli_version})` : ""}`,
     `Claude authenticated:           ${payload.claude_authenticated ? "YES" : "NO"}`,
     `Claude runtime probe:           ${payload.claude_runtime_probe_performed ? (payload.claude_runtime_ready ? "READY" : "FAILED") : "SKIPPED"} (${payload.claude_runtime_detail})`,
     `Git available:                  ${payload.git_available ? "YES" : "NO"}${payload.git_version ? ` (${payload.git_version})` : ""}`,

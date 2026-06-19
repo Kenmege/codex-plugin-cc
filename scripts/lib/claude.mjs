@@ -4,10 +4,10 @@ import { fileURLToPath } from "node:url";
 
 import { binaryAvailable, runCommand, runCommandCapture, runCommandChecked } from "./process.mjs";
 
-export const DEFAULT_MODEL = "claude-opus-4-7";
-export const DEFAULT_EFFORT = "high";
+export const DEFAULT_MODEL = "opus";
+export const DEFAULT_EFFORT = "xhigh";
 export const DEEP_REVIEW_EFFORT = "max";
-export const LONG_CONTEXT_MODEL = "claude-opus-4-7[1m]";
+export const LONG_CONTEXT_MODEL = "opus[1m]";
 export const AUTO_LONG_CONTEXT_BYTES = 250_000;
 export const CLAUDE_SETTING_SOURCES = "project,local";
 export const CLAUDE_REVIEW_TIMEOUT_MS = 30 * 60 * 1000;
@@ -795,6 +795,28 @@ export function getClaudeAvailability(cwd) {
   return binaryAvailable("claude", ["--help"], { cwd });
 }
 
+export function getClaudeVersion(cwd) {
+  const result = runCommand("claude", ["--version"], { cwd });
+  if (result.error) {
+    return {
+      version: null,
+      detail: `claude --version failed (${result.error.code ?? "error"})`
+    };
+  }
+  const detail = String(result.stdout || result.stderr || "").trim();
+  if (result.status !== 0) {
+    return {
+      version: null,
+      detail: detail || "claude --version failed"
+    };
+  }
+  const match = detail.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/);
+  return {
+    version: match?.[0] ?? null,
+    detail: detail || "claude version unavailable"
+  };
+}
+
 export function getClaudeAuthStatus(cwd) {
   const result = runCommand("claude", ["auth", "status"], { cwd });
   if (result.error) {
@@ -833,7 +855,7 @@ export function selectClaudeProfile(options = {}) {
   if (shouldAutoSwitchToLongContext) {
     const notes = wantsLongContext
       ? []
-      : ["Auto-switched to the explicit Opus 4.7 1M long-context profile because the review snapshot exceeded the inline threshold."];
+      : ["Auto-switched to Claude Code's current Opus 1M alias because the review snapshot exceeded the inline threshold."];
     return {
       model: LONG_CONTEXT_MODEL,
       effort: options.effort ?? DEFAULT_EFFORT,
@@ -844,7 +866,7 @@ export function selectClaudeProfile(options = {}) {
   }
 
   const overrideNotes = options.model && wantsLongContext
-    ? ["Long-context was requested with an explicit model override, so the helper kept the explicit model and did not force the documented Opus 4.7 1M profile."]
+    ? ["Long-context was requested with an explicit model override, so the helper kept the explicit model and did not force Claude Code's current Opus 1M alias."]
     : [];
 
   return {

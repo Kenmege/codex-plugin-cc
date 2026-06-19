@@ -52,6 +52,8 @@ The helper treats diff text, user focus text, and workspace guidance as untruste
 - `--permission-mode default` unless the user explicitly selects `plan`
 - `--strict-mcp-config` unless `--inherit-mcp` is explicit
 
+Claude Code 2.1.183 improved auto-mode safety for destructive git and infra commands, but this plugin still does not opt into auto mode: reviews are read-only by product design, so `--permission-mode auto` remains rejected rather than delegated to Claude Code's classifier. Source: Anthropic Claude Code changelog, accessed 2026-06-19: https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md
+
 Legacy mode passes `--tools ""` and `--disable-slash-commands`.
 
 ## Background Jobs

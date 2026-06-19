@@ -145,7 +145,7 @@ export function renderSetupReport(report) {
     "",
     `Status: ${report.ready ? "ready" : "needs attention"}`,
     "",
-    `- claude: ${report.claude.detail}`,
+    `- claude: ${report.claude.detail}${report.claude.version ? ` (${report.claude.version})` : ""}`,
     `- auth: ${report.auth.detail}`,
     `- runtime: ${report.runtime.detail}`,
     `- subscription auth detected: ${report.subscription ? "yes (--max-budget-usd and --betas are suppressed; use --timeout-ms for a wall-clock cap)" : "no"}`,

@@ -1,8 +1,8 @@
 {
   "name": "codex-plugin-cc",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "type": "module",
-  "description": "Codex-native Claude review plugin: agentic Opus 4.7 reviewers, including explicit Opus 4.7 1M long-context mode, with full read-only tool access for high-scrutiny code review, adversarial review, deep multi-agent review, and security-focused review.",
+  "description": "Codex-native Claude review plugin: agentic Claude Opus-alias reviewers, including Opus 1M long-context mode, with full read-only tool access for high-scrutiny code review, adversarial review, deep multi-agent review, and security-focused review.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -20,6 +20,7 @@
     ".codex-plugin/",
     "commands/",
     "schemas/",
+    "skills/",
     "scripts/claude-review-companion.mjs",
     "scripts/validate-repo.mjs",
     "scripts/bin/",
@@ -37,7 +38,7 @@
   },
   "scripts": {
     "lint": "node scripts/validate-repo.mjs",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test test/*.test.mjs tests/*.test.mjs",
     "check": "npm run lint && npm test",
     "pack:check": "npm pack --dry-run"
   },
