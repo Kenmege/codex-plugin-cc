@@ -341,24 +341,6 @@ subscription auth from API-key auth without exposing the account address.
 
 ## Slash Commands
 
-Once loaded as a Codex plugin, the slash command surface is:
-
-- `/claude-review:review`
-- `/claude-review:adversarial-review`
-- `/claude-review:elite-review`
-- `/claude-review:deep-review`
-- `/claude-review:security-review`
-- `/claude-review:doctor`
-- `/claude-review:setup`
-- `/claude-review:status`
-- `/claude-review:result`
-- `/claude-review:cancel`
-
-The command docs are thin wrappers that tell Codex to invoke the local helper
-and return its stdout directly.
-
-## Slash Commands
-
 Once the plugin marketplace is loaded, these `/claude-review:*` commands are
 available from inside a Codex CLI session. They are thin wrappers that invoke
 the bundled `codex-claude-review` helper and return its output directly.

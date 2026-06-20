@@ -486,8 +486,9 @@ test("getClaudeSetupProbeTimeoutMs falls back on invalid override values", () =>
 test("claude setup probes time out instead of hanging on a stalled binary", () => {
   // A misconfigured / first-run claude binary can hang forever. The probes
   // must bound themselves with the setup-probe timeout so doctor/setup never
-  // wedge. Force a tiny timeout and a binary that sleeps far longer.
-  const fake = withFakeClaudeExecutable("sleep 30\n");
+  // wedge. The fake binary also ignores SIGTERM, so this exercises the
+  // hard-kill (SIGKILL) escalation path, not just the soft timeout.
+  const fake = withFakeClaudeExecutable("trap '' TERM\nsleep 30\n");
   const previousTimeout = process.env[CLAUDE_SETUP_PROBE_TIMEOUT_ENV];
   process.env[CLAUDE_SETUP_PROBE_TIMEOUT_ENV] = "300";
 

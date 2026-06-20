@@ -96,11 +96,13 @@ const SCRUBBED_ENV_VARS = [
   "GIT_REPLACE_REF_BASE",
   // executable / binary path redirection
   "GIT_EXEC_PATH",
-  // config injection
+  // config injection (incl. the GIT_CONFIG_COUNT/KEY_n/VALUE_n triplets,
+  // which can set core.pager, core.sshCommand, core.fsmonitor, etc.)
   "GIT_CONFIG",
   "GIT_CONFIG_GLOBAL",
   "GIT_CONFIG_SYSTEM",
   "GIT_CONFIG_NOSYSTEM",
+  "GIT_CONFIG_COUNT",
   "GIT_ATTR_SYSTEM",
   // arbitrary-program execution hooks
   "GIT_TEMPLATE_DIR",
@@ -113,7 +115,18 @@ const SCRUBBED_ENV_VARS = [
   "GIT_SSH_COMMAND",
   "GIT_ASKPASS",
   "GIT_PROXY_COMMAND",
-  "GIT_MERGE_AUTOEDIT"
+  "GIT_MERGE_AUTOEDIT",
+  "GIT_FSMONITOR_DAEMON"
+];
+
+// Prefixes for dynamically-numbered or family env vars that must also be
+// stripped: the GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n config triplets, and
+// the GIT_TRACE* family which can redirect trace output to an attacker-chosen
+// absolute file path (arbitrary file write) on any git invocation.
+const SCRUBBED_ENV_PREFIXES = [
+  "GIT_CONFIG_KEY_",
+  "GIT_CONFIG_VALUE_",
+  "GIT_TRACE"
 ];
 
 const SHELL_METACHAR_RE = /[;&|`$<>(){}\\\n\r\t]|\$\(/;
@@ -275,6 +288,11 @@ function main() {
   const env = { ...process.env };
   for (const key of SCRUBBED_ENV_VARS) {
     delete env[key];
+  }
+  for (const key of Object.keys(env)) {
+    if (SCRUBBED_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      delete env[key];
+    }
   }
 
   const result = spawnSync("git", [subcommand, ...rest], {
