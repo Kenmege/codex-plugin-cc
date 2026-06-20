@@ -40,7 +40,10 @@ export function runCommand(command, args, options = {}) {
     env: options.env,
     encoding: "utf8",
     maxBuffer: options.maxBuffer ?? 16 * 1024 * 1024,
-    timeout: options.timeout
+    timeout: options.timeout,
+    // Hard-kill on timeout so a child that ignores SIGTERM (e.g. a stalled
+    // `claude` binary waiting on a first-run prompt) cannot wedge the caller.
+    killSignal: options.killSignal ?? "SIGKILL"
   });
 }
 
