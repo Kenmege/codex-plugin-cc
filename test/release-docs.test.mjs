@@ -57,7 +57,27 @@ test("pull request workflow covers the platform-neutral surface on supported Nod
   }
   assert.match(checkJob, /run: npm run check/);
   assert.match(checkJob, /run: npm run pack:check/);
-  assert.doesNotMatch(source, /windows-test:|macos-tmux:/);
+});
+
+test("pull request workflow retains the Windows portability gate", () => {
+  const source = read(".github/workflows/pull-request-ci.yml");
+  const windowsJob = workflowJob(source, "windows-test");
+
+  assert.match(windowsJob, /runs-on: windows-latest/);
+  assert.match(windowsJob, /node-version: 18\.18\.0/);
+  assert.match(windowsJob, /run: npm run lint/);
+  assert.match(windowsJob, /run: npm run test:windows/);
+  assert.match(windowsJob, /run: npm run pack:check/);
+});
+
+test("pull request workflow runs the real tmux executor on macOS", () => {
+  const source = read(".github/workflows/pull-request-ci.yml").replaceAll("\r\n", "\n");
+  const macosJob = workflowJob(source, "macos-tmux");
+
+  assert.match(macosJob, /runs-on: macos-latest/);
+  assert.match(macosJob, /brew install tmux/);
+  assert.match(macosJob, /run: npm ci/);
+  assert.match(macosJob, /node --test test\/tmux-executor\.test\.mjs/);
 });
 
 test("pull request workflow runs the real tmux executor on Linux", () => {
