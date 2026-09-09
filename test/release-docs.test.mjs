@@ -52,9 +52,9 @@ test("pull request workflow covers the platform-neutral surface on supported Nod
   const checkJob = workflowJob(source, "check");
 
   assert.match(checkJob, /runs-on: ubuntu-latest/);
-  assert.match(checkJob, /18\.18\.0/);
-  assert.match(checkJob, /20/);
-  assert.match(checkJob, /22/);
+  for (const version of ["18\\.18\\.0", "20", "22"]) {
+    assert.match(checkJob, new RegExp(`^[\\t ]*-[\\t ]+${version}[\\t ]*$`, "m"));
+  }
   assert.match(checkJob, /run: npm run check/);
   assert.match(checkJob, /run: npm run pack:check/);
   assert.doesNotMatch(source, /windows-test:|macos-tmux:/);

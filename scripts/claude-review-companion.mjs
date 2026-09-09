@@ -385,8 +385,8 @@ const COMMAND_USAGE = Object.freeze({
 });
 
 function printCommandUsage(command) {
+  if (!Object.hasOwn(COMMAND_USAGE, command)) return false;
   const lines = COMMAND_USAGE[command];
-  if (!lines) return false;
   process.stdout.write(["Usage:", `  ${lines[0]}`, "", ...lines.slice(1), "", "Run `codex-claude --help` for the complete flag reference."].join("\n") + "\n");
   return true;
 }

@@ -169,12 +169,15 @@ test("helper help exits successfully while unknown commands remain usage errors"
     assert.match(result.stdout, /Compatibility alias:\s+codex-claude-review\b/);
   }
 
-  const unknown = spawnSync(process.execPath, [helper, "not-a-command"], {
-    cwd: root,
-    encoding: "utf8"
-  });
-  assert.equal(unknown.status, 2);
-  assert.match(unknown.stdout, /Usage:/);
+  for (const command of ["not-a-command", "__proto__"]) {
+    const unknown = spawnSync(process.execPath, [helper, command], {
+      cwd: root,
+      encoding: "utf8"
+    });
+    assert.equal(unknown.status, 2, `${command}: ${unknown.stderr}`);
+    assert.match(unknown.stdout, /Usage:/);
+    assert.doesNotMatch(unknown.stderr, /TypeError/);
+  }
 });
 
 test("every public subcommand help exits before provider, runtime, credential, or job side effects", () => {
