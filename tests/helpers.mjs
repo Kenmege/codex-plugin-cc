@@ -4,8 +4,46 @@ import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 
+import { terminateProcessTree } from "../plugins/codex/scripts/lib/process.mjs";
+import {
+  clearBrokerSession,
+  loadBrokerSession,
+  sendBrokerShutdown,
+  teardownBrokerSession
+} from "../plugins/codex/scripts/lib/broker-lifecycle.mjs";
+
+const tempDirs = new Set();
+
 export function makeTempDir(prefix = "codex-plugin-test-") {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.add(dir);
+  return dir;
+}
+
+export async function cleanupBrokerSessions() {
+  for (const dir of tempDirs) {
+    try {
+      const brokerSession = loadBrokerSession(dir);
+      if (!brokerSession) {
+        continue;
+      }
+      if (brokerSession.endpoint) {
+        await sendBrokerShutdown(brokerSession.endpoint);
+      }
+      teardownBrokerSession({
+        endpoint: brokerSession.endpoint ?? null,
+        pidFile: brokerSession.pidFile ?? null,
+        logFile: brokerSession.logFile ?? null,
+        sessionDir: brokerSession.sessionDir ?? null,
+        pid: brokerSession.pid ?? null,
+        killProcess: terminateProcessTree
+      });
+      clearBrokerSession(dir);
+    } catch {
+      // A failed cleanup must not abort the remaining directories or the test run.
+    }
+  }
+  tempDirs.clear();
 }
 
 export function writeExecutable(filePath, source) {
